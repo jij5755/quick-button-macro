@@ -56,7 +56,6 @@ class SelectableButton(SubLabelButton):
         self.custom_color = self.data.get("custom_color", False)
 
         self.grid_size = GRID_SIZE
-        self.macro_text = data.get("text", "") if data else ""
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
@@ -103,21 +102,6 @@ class SelectableButton(SubLabelButton):
     def set_selected(self, selected):
         self.is_selected = selected
         self.update_selection_style()
-
-    def update_button_text(self):
-        if self.sub_label:
-            self.setText(self.main_label + "\n" + self.sub_label)
-            self.setStyleSheet("""
-                QPushButton {
-                    text-align: center;
-                    padding: 4px;
-                    qproperty-alignment: AlignCenter;
-                    white-space: pre-wrap;
-                }
-            """)
-        else:
-            self.setText(self.main_label)
-            self.setStyleSheet("QPushButton { text-align: center; }")
 
     def update_selection_style(self):
         base_style = """

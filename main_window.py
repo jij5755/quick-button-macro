@@ -2,7 +2,6 @@ import sys
 import json
 import os
 import copy
-import time
 
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QPushButton, QVBoxLayout, QHBoxLayout,
@@ -95,14 +94,14 @@ class QuickButtonMacro(QMainWindow):
         self.buttons_container.setFocusPolicy(Qt.StrongFocus)
         self.buttons_container.setFocus()
 
-        def resizeEvent(self, event):
-            """창 크기 변경 시 처리"""
-            super().resizeEvent(event)
-            
-            # 컨테이너 크기 업데이트
-            if hasattr(self, 'buttons_container'):
-                self.buttons_container.updateMinimumSize()
-    
+    def resizeEvent(self, event):
+        """창 크기 변경 시 처리"""
+        super().resizeEvent(event)
+
+        # 컨테이너 크기 업데이트
+        if hasattr(self, 'buttons_container'):
+            self.buttons_container.updateMinimumSize()
+
     def copy_selected_widgets_to_clipboard(self):
         """선택된 위젯들을 클립보드에 복사"""
         selected_widgets = self.get_all_selected_widgets()
@@ -582,10 +581,18 @@ class QuickButtonMacro(QMainWindow):
                 
                 # 프리셋 목록 업데이트
                 self.update_preset_list()
-                
+
+                # 변환된 프리셋을 콤보박스에서 선택하고 즉시 로드
+                self.preset_combo.blockSignals(True)
+                index = self.preset_combo.findText("기존 데이터")
+                if index >= 0:
+                    self.preset_combo.setCurrentIndex(index)
+                self.preset_combo.blockSignals(False)
+                self.load_preset("기존 데이터")
+
                 # 상태 메시지 표시
                 self.statusBar().showMessage("기존 데이터가 '기존 데이터' 프리셋으로 변환되었습니다.", 3000)
-                
+
                 return True
             except Exception as e:
                 print(f"기존 데이터 마이그레이션 오류: {e}")
@@ -734,8 +741,6 @@ class QuickButtonMacro(QMainWindow):
         set_header_layout.addWidget(QLabel("퀵버튼 세트"))
         set_header_layout.addWidget(add_set_button)
         set_header_layout.addWidget(set_list_font_button)
-        
-        self.set_list = QListWidget()
         
         self.set_list = SetListWidget(self)
         self.set_list.setSelectionMode(QListWidget.SingleSelection)  # 단일 항목만 선택 가능하도록 설정
@@ -974,10 +979,13 @@ class QuickButtonMacro(QMainWindow):
             super().keyPressEvent(event)
     
     def eventFilter(self, obj, event):
-        """이벤트 필터 - 모든 키 이벤트를 메인 윈도우로 전달"""
-        if event.type() == QEvent.KeyPress:
-            self.keyPressEvent(event)
-            return True
+        """이벤트 필터 - 편집 모드 단축키(Delete, Ctrl+C/V)만 가로채고 나머지는 그대로 전달"""
+        if event.type() == QEvent.KeyPress and self.edit_mode:
+            key = event.key()
+            ctrl = bool(event.modifiers() & Qt.ControlModifier)
+            if key == Qt.Key_Delete or (ctrl and key in (Qt.Key_C, Qt.Key_V)):
+                self.keyPressEvent(event)
+                return True
         return super().eventFilter(obj, event)
     
     def get_all_selected_widgets(self):
@@ -1269,20 +1277,23 @@ class QuickButtonMacro(QMainWindow):
         self.apply_alternating_row_colors()
     
     def apply_alternating_row_colors(self):
-        """세트 리스트에 교차 배경색 적용 - 비활성화"""
-        # 교차 배경색 기능 비활성화
+        """세트 리스트에 교차 배경색 적용"""
+        # Qt 기본 교차색 기능은 쓰지 않고 항목별로 직접 색을 칠한다
         self.set_list.setAlternatingRowColors(False)
-        
-        # 모든 항목에 기본 흰색 배경 적용
+
         for i in range(self.set_list.count()):
             item = self.set_list.item(i)
-            
+
             # 개별 스타일이 적용된 항목은 건너뛰기
             if hasattr(item, 'individual_style') and item.individual_style:
                 continue
-                
-            # 기본 흰색 배경 적용
-            item.setBackground(QColor("#FFFFFF"))
+
+            if self.use_alternating_colors:
+                # 짝수/홀수 행에 사용자가 지정한 배경색 적용
+                item.setBackground(self.even_row_color if i % 2 == 0 else self.odd_row_color)
+            else:
+                # 교차 배경색 미사용 시 기본 흰색
+                item.setBackground(QColor("#FFFFFF"))
 
     
     def set_list_row_colors(self):
@@ -2755,18 +2766,18 @@ class QuickButtonMacro(QMainWindow):
     
     def set_target_position(self):
         """마우스 목표 위치 설정"""
-        QMessageBox.information(self, "마우스 위치 설정", 
-                               "3초 후 마우스 포인터가 위치한 곳이 목표 위치로 설정됩니다.")
-        
-        # 3초 대기
-        for i in range(3, 0, -1):
-            time.sleep(1)
-        
-        # 현재 마우스 위치 저장
+        QMessageBox.information(self, "마우스 위치 설정",
+                               "확인을 누른 뒤 3초 후 마우스 포인터가 위치한 곳이 목표 위치로 설정됩니다.")
+
+        # GUI를 멈추지 않고 3초 후에 현재 마우스 위치를 저장
+        QTimer.singleShot(3000, self._capture_target_position)
+
+    def _capture_target_position(self):
+        """3초 대기 후 현재 마우스 위치를 목표 위치로 저장"""
         self.target_position = pyautogui.position()
-        QMessageBox.information(self, "설정 완료", 
+        QMessageBox.information(self, "설정 완료",
                                f"마우스 위치가 {self.target_position}으로 설정되었습니다.")
-        
+
         # 설정 저장
         self.save_sets()
     
@@ -3198,18 +3209,19 @@ class QuickButtonMacro(QMainWindow):
             except:
                 pass
         
-            # 스플리터 크기 로드
+        # 스플리터 크기 로드
         if 'splitter_sizes' in global_settings:
             try:
                 sizes = global_settings['splitter_sizes']
                 if isinstance(sizes, list) and len(sizes) == 2:
-                    # 최소값과 최대값을 제한
+                    # 왼쪽 패널 너비를 최소 150px, 최대 전체의 70%로 제한
                     total_width = sum(sizes)
-                    left_width = max(150, min(sizes[0], total_width * 0.7))  # 최소 150px, 최대 전체의 70%
+                    left_width = int(max(150, min(sizes[0], total_width * 0.7)))
                     right_width = total_width - left_width
-                    
+                    clamped_sizes = [left_width, right_width]
+
                     # 타이머를 사용해서 UI가 완전히 로드된 후 크기 적용
-                    QTimer.singleShot(100, lambda: self.splitter.setSizes(sizes))
+                    QTimer.singleShot(100, lambda: self.splitter.setSizes(clamped_sizes))
             except Exception as e:
                 print(f"스플리터 크기 로드 오류: {e}")
 
@@ -3276,11 +3288,6 @@ class QuickButtonMacro(QMainWindow):
         
         if not isinstance(set_data['textboxes'], list):
             set_data['textboxes'] = []
-        
-        # 버튼 데이터 복원 체크 - 이 부분이 새로 추가된 코드입니다
-        if len(set_data['buttons']) == 0 and hasattr(self, 'button_data') and len(self.button_data) > 0:
-            print("빈 버튼 배열 감지 - 현재 메모리에 있는 버튼 데이터로 복원 시도")
-            set_data['buttons'] = self.button_data.copy()
         
         # 각 버튼 데이터 확인 및 수정
         for i, button in enumerate(set_data['buttons']):
