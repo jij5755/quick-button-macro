@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# PyInstaller build artifacts
+build/
+dist/
+*.exe
+
+# Runtime/user data
+presets/
+preset_meta.json
+button_sets.json
+button_sets_backup_*.json
