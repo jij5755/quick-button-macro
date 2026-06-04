@@ -14,6 +14,71 @@ from PyQt5.QtCore import Qt, QPoint, QSize, QTimer, QMimeData, QEvent, QRect
 from PyQt5.QtGui import QFont, QColor, QPalette, QDrag, QCursor, QPainter, QPixmap, QPen, QKeyEvent
 import pyautogui
 import pyperclip
+import time
+import ctypes
+
+# ---------------------------------------------------------------------------
+# Windows SendInput 기반 유니코드 키 입력
+# 바코드 스캐너(키보드 웨지)처럼 실제 키 입력 이벤트를 한 글자씩 보냅니다.
+# pyautogui.write()와 달리 한글 등 유니코드도 그대로 입력됩니다.
+# (KEYEVENTF_UNICODE 방식 - POS/ERP의 키 입력만 받는 필드에서도 동작)
+# ---------------------------------------------------------------------------
+_PUL = ctypes.POINTER(ctypes.c_ulong)
+
+
+class _KeyBdInput(ctypes.Structure):
+    _fields_ = [("wVk", ctypes.c_ushort),
+                ("wScan", ctypes.c_ushort),
+                ("dwFlags", ctypes.c_ulong),
+                ("time", ctypes.c_ulong),
+                ("dwExtraInfo", _PUL)]
+
+
+class _Input_I(ctypes.Union):
+    _fields_ = [("ki", _KeyBdInput)]
+
+
+class _Input(ctypes.Structure):
+    _fields_ = [("type", ctypes.c_ulong),
+                ("ii", _Input_I)]
+
+
+_INPUT_KEYBOARD = 1
+_KEYEVENTF_UNICODE = 0x0004
+_KEYEVENTF_KEYUP = 0x0002
+_VK_RETURN = 0x0D
+
+
+def _send_input(wVk, wScan, dwFlags):
+    extra = ctypes.c_ulong(0)
+    ii = _Input_I()
+    ii.ki = _KeyBdInput(wVk, wScan, dwFlags, 0, ctypes.pointer(extra))
+    inp = _Input(_INPUT_KEYBOARD, ii)
+    ctypes.windll.user32.SendInput(1, ctypes.byref(inp), ctypes.sizeof(inp))
+
+
+def type_unicode(text, interval=0.005):
+    """문자열을 유니코드 키 입력으로 한 글자씩 전송 (한글 지원)."""
+    for ch in text:
+        code = ord(ch)
+        # 보충 평면(이모지 등) 문자는 서로게이트 쌍으로 분해해 전송
+        if code > 0xFFFF:
+            code -= 0x10000
+            for unit in (0xD800 + (code >> 10), 0xDC00 + (code & 0x3FF)):
+                _send_input(0, unit, _KEYEVENTF_UNICODE)
+                _send_input(0, unit, _KEYEVENTF_UNICODE | _KEYEVENTF_KEYUP)
+        else:
+            _send_input(0, code, _KEYEVENTF_UNICODE)
+            _send_input(0, code, _KEYEVENTF_UNICODE | _KEYEVENTF_KEYUP)
+        if interval:
+            time.sleep(interval)
+
+
+def press_enter():
+    """Enter 키를 실제 가상키 입력으로 전송."""
+    _send_input(_VK_RETURN, 0, 0)
+    _send_input(_VK_RETURN, 0, _KEYEVENTF_KEYUP)
+
 
 from constants import (
     DEFAULT_BUTTON_WIDTH, DEFAULT_BUTTON_HEIGHT,
@@ -2876,26 +2941,24 @@ class QuickButtonMacro(QMainWindow):
         # 디버깅 메시지
         print(f"매크로 실행: {text[:20]}...")
             
-        # 텍스트를 클립보드에 복사
+        # 클립보드에도 백업해 둠 (필요 시 수동 Ctrl+V 가능)
         pyperclip.copy(text)
-        
+
         try:
-            # 마우스 이동 및 동작 수행
+            # 마우스 이동 및 입력칸 포커스
             pyautogui.moveTo(self.target_position)
             pyautogui.doubleClick()
-            
-            # 스페이스바 누르기
-            pyautogui.press('space')
-            
-            # Ctrl+A를 눌러서 전체 선택
+
+            # 기존 값이 있으면 전체 선택하여 덮어쓰기
             pyautogui.hotkey('ctrl', 'a')
-            
-            # Ctrl+V를 눌러서 붙여넣기
-            pyautogui.hotkey('ctrl', 'v')
-                
+
+            # 바코드 스캐너처럼 실제 키 입력으로 한 글자씩 타이핑 (한글 지원)
+            # 붙여넣기(Ctrl+V)를 거부하는 POS/ERP 필드에서도 입력됩니다.
+            type_unicode(text)
+
             # Enter 키를 눌러 실행 또는 다음 줄로 이동
-            pyautogui.press('enter')
-            
+            press_enter()
+
         except Exception as e:
             print(f"매크로 실행 중 오류 발생: {e}")
             QMessageBox.warning(self, "매크로 실행 오류", f"매크로 실행 중 오류가 발생했습니다.\n{str(e)}")
