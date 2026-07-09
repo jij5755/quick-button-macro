@@ -34,8 +34,28 @@ class _KeyBdInput(ctypes.Structure):
                 ("dwExtraInfo", _PUL)]
 
 
+class _MouseInput(ctypes.Structure):
+    _fields_ = [("dx", ctypes.c_long),
+                ("dy", ctypes.c_long),
+                ("mouseData", ctypes.c_ulong),
+                ("dwFlags", ctypes.c_ulong),
+                ("time", ctypes.c_ulong),
+                ("dwExtraInfo", _PUL)]
+
+
+class _HardwareInput(ctypes.Structure):
+    _fields_ = [("uMsg", ctypes.c_ulong),
+                ("wParamL", ctypes.c_short),
+                ("wParamH", ctypes.c_ushort)]
+
+
+# 유니온에는 실제 INPUT 구조체처럼 세 멤버가 모두 있어야 한다.
+# ki만 넣으면 sizeof(INPUT)가 Windows 기대값보다 작아져
+# SendInput이 ERROR_INVALID_PARAMETER로 조용히 실패한다(입력 무시됨).
 class _Input_I(ctypes.Union):
-    _fields_ = [("ki", _KeyBdInput)]
+    _fields_ = [("ki", _KeyBdInput),
+                ("mi", _MouseInput),
+                ("hi", _HardwareInput)]
 
 
 class _Input(ctypes.Structure):
@@ -54,7 +74,9 @@ def _send_input(wVk, wScan, dwFlags):
     ii = _Input_I()
     ii.ki = _KeyBdInput(wVk, wScan, dwFlags, 0, ctypes.pointer(extra))
     inp = _Input(_INPUT_KEYBOARD, ii)
-    ctypes.windll.user32.SendInput(1, ctypes.byref(inp), ctypes.sizeof(inp))
+    sent = ctypes.windll.user32.SendInput(1, ctypes.byref(inp), ctypes.sizeof(inp))
+    if sent != 1:
+        raise ctypes.WinError(ctypes.windll.kernel32.GetLastError())
 
 
 def type_unicode(text, interval=0.005):
@@ -2948,6 +2970,9 @@ class QuickButtonMacro(QMainWindow):
             # 마우스 이동 및 입력칸 포커스
             pyautogui.moveTo(self.target_position)
             pyautogui.doubleClick()
+
+            # 스페이스바 누르기
+            pyautogui.press('space')
 
             # 기존 값이 있으면 전체 선택하여 덮어쓰기
             pyautogui.hotkey('ctrl', 'a')
