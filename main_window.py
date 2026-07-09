@@ -151,6 +151,8 @@ class QuickButtonMacro(QMainWindow):
         self.current_set_index = 0  # 현재 선택된 세트 인덱스
         self.buttons = []  # 현재 세트의 활성 버튼 객체들
         self.button_data = []  # 현재 세트의 버튼 데이터
+        # 세트 로드가 중간에 실패하면 True - 화면의 부분 상태로 세트 데이터를 덮어쓰지 않기 위한 플래그
+        self._current_set_load_failed = False
         
         # UI 초기화
         self.init_ui()
@@ -546,6 +548,9 @@ class QuickButtonMacro(QMainWindow):
         """프리셋 로드"""
         data = self.preset_manager.load_preset(preset_name)
         if not data:
+            QMessageBox.warning(self, "프리셋 로드 실패",
+                                f"'{preset_name}' 프리셋 파일을 읽을 수 없습니다.\n"
+                                f"'{os.path.join(self.preset_manager.presets_dir, 'backup')}' 폴더의 백업을 확인해 주세요.")
             return False
         
         try:
@@ -1525,6 +1530,11 @@ class QuickButtonMacro(QMainWindow):
         # 현재 세트의 인덱스가 유효한지 확인
         if self.current_set_index < 0 or self.current_set_index >= len(self.button_sets):
             return
+
+        # 세트 로드가 실패한 상태면 화면에 위젯 일부만 남아 있으므로
+        # 그대로 저장하면 세트의 원본 데이터가 부분 상태로 덮어써진다
+        if self._current_set_load_failed:
+            return
             
         # 현재 버튼 상태를 button_data에 저장
         set_buttons = []
@@ -1633,7 +1643,8 @@ class QuickButtonMacro(QMainWindow):
         # 새 세트 로드
         self.current_set_index = set_index
         current_set = self.button_sets[set_index]
-        
+        self._current_set_load_failed = True  # 로드가 끝까지 성공해야 False로 전환
+
         try:
             # 세트의 버튼 생성
             for button_info in current_set.buttons:
@@ -1693,12 +1704,15 @@ class QuickButtonMacro(QMainWindow):
                         textbox.custom_color = custom_color
                         textbox.update_selection_style()
             
+            # 모든 위젯 생성 성공 - 이제 화면 상태가 세트 데이터와 일치함
+            self._current_set_load_failed = False
+
             # 타이틀 업데이트
             self.update_edit_mode_display()
 
             # 컨테이너 크기 업데이트
             self.buttons_container.updateMinimumSize()
-            
+
             # 자동 저장
             self.save_sets()
         except Exception as e:

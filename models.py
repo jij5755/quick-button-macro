@@ -1,6 +1,9 @@
 import json
 import os
 import copy
+import shutil
+import time
+import datetime
 
 from PyQt5.QtCore import QPoint
 from PyQt5.QtGui import QColor
@@ -197,6 +200,9 @@ class WidgetClipboard:
 
 
 class PresetManager:
+    BACKUP_KEEP = 20          # 프리셋당 보관할 백업 개수
+    BACKUP_MIN_INTERVAL = 600 # 백업 최소 간격 (초) - 저장이 잦아도 백업은 10분에 한 번만
+
     def __init__(self, main_app):
         self.main_app = main_app
         self.presets_dir = PRESETS_DIR
@@ -219,8 +225,72 @@ class PresetManager:
                 self.current_preset = ""
 
     def save_meta(self):
-        with open(self.meta_file, 'w', encoding='utf-8') as f:
-            json.dump({"last_preset": self.current_preset}, f, ensure_ascii=False)
+        self._atomic_write_json(self.meta_file, {"last_preset": self.current_preset})
+
+    @staticmethod
+    def _atomic_write_json(file_path, data, indent=None):
+        """임시 파일에 완전히 쓴 뒤 교체 - 쓰기 도중 중단돼도 기존 파일이 깨지지 않음"""
+        tmp_path = f"{file_path}.tmp"
+        with open(tmp_path, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=indent)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, file_path)
+
+    def _backup_dir(self):
+        return os.path.join(self.presets_dir, "backup")
+
+    def _list_backups(self, name):
+        """해당 프리셋의 백업 파일명을 오래된 순으로 반환"""
+        backup_dir = self._backup_dir()
+        if not os.path.isdir(backup_dir):
+            return []
+        prefix = f"{name}_"
+        return sorted(
+            f for f in os.listdir(backup_dir)
+            if f.startswith(prefix) and f.endswith(".json")
+            and f[len(prefix):-5].replace("_", "").isdigit()
+        )
+
+    def _backup_preset_file(self, name, file_path):
+        """저장 직전의 기존 프리셋 파일을 백업 폴더에 보관"""
+        if not os.path.exists(file_path):
+            return
+        backups = self._list_backups(name)
+        backup_dir = self._backup_dir()
+        if backups:
+            newest = os.path.join(backup_dir, backups[-1])
+            if time.time() - os.path.getmtime(newest) < self.BACKUP_MIN_INTERVAL:
+                return
+        os.makedirs(backup_dir, exist_ok=True)
+        stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        shutil.copy2(file_path, os.path.join(backup_dir, f"{name}_{stamp}.json"))
+        # 오래된 백업 정리
+        for old in self._list_backups(name)[:-self.BACKUP_KEEP]:
+            try:
+                os.remove(os.path.join(backup_dir, old))
+            except OSError:
+                pass
+
+    def _restore_from_backup(self, name, file_path):
+        """손상된 프리셋 파일을 가장 최근의 정상 백업으로 복구"""
+        backup_dir = self._backup_dir()
+        for fname in reversed(self._list_backups(name)):
+            backup_path = os.path.join(backup_dir, fname)
+            try:
+                with open(backup_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+            except Exception:
+                continue  # 이 백업도 손상 - 그 이전 백업 시도
+            # 손상된 원본은 진단용으로 보존하고 백업으로 교체
+            try:
+                os.replace(file_path, f"{file_path}.corrupt")
+            except OSError:
+                pass
+            shutil.copy2(backup_path, file_path)
+            print(f"프리셋 '{name}'을(를) 백업 '{fname}'으로 복구했습니다.")
+            return data
+        return None
 
     def get_preset_list(self):
         preset_files = []
@@ -231,20 +301,29 @@ class PresetManager:
 
     def save_preset(self, name, data):
         file_path = os.path.join(self.presets_dir, f"{name}.json")
-        with open(file_path, 'w', encoding='utf-8') as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
+        try:
+            self._backup_preset_file(name, file_path)
+        except Exception as e:
+            print(f"프리셋 백업 실패 (저장은 계속 진행): {e}")
+        self._atomic_write_json(file_path, data, indent=2)
         self.current_preset = name
         self.save_meta()
 
     def load_preset(self, name):
         file_path = os.path.join(self.presets_dir, f"{name}.json")
-        if os.path.exists(file_path):
+        if not os.path.exists(file_path):
+            return None
+        try:
             with open(file_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
-            self.current_preset = name
-            self.save_meta()
-            return data
-        return None
+        except Exception as e:
+            print(f"프리셋 '{name}' 파일 손상: {e}")
+            data = self._restore_from_backup(name, file_path)
+            if data is None:
+                return None
+        self.current_preset = name
+        self.save_meta()
+        return data
 
     def rename_preset(self, old_name, new_name):
         if old_name == new_name or not old_name or not new_name:

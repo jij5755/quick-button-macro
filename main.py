@@ -1,10 +1,24 @@
 import sys
 from PyQt5.QtWidgets import QApplication, QMessageBox
 import os
+import ctypes
+
+# 중복 실행 방지용 뮤텍스 이름
+_MUTEX_NAME = "QuickButtonMacro_SingleInstance_Mutex"
+_ERROR_ALREADY_EXISTS = 183
 
 # main_window.py와 같은 폴더에서 실행되어야 합니다
 if __name__ == '__main__':
     app = QApplication(sys.argv)
+
+    # 중복 실행 방지: 두 인스턴스가 같은 프리셋 파일을 서로 덮어써
+    # 버튼 데이터가 유실되는 것을 막는다 (핸들은 프로세스 종료 시 자동 해제)
+    _mutex = ctypes.windll.kernel32.CreateMutexW(None, False, _MUTEX_NAME)
+    if ctypes.windll.kernel32.GetLastError() == _ERROR_ALREADY_EXISTS:
+        QMessageBox.warning(None, "이미 실행 중",
+                            "퀵버튼 매크로가 이미 실행 중입니다.\n"
+                            "기존 창을 사용해 주세요. (중복 실행 시 데이터가 유실될 수 있어 차단합니다)")
+        sys.exit(0)
 
     try:
         from main_window import QuickButtonMacro
