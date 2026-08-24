@@ -847,9 +847,12 @@ class QuickButtonMacro(QMainWindow):
         left_layout.addLayout(set_header_layout)
         left_layout.addWidget(self.set_list)
 
-        # 부속 인식 시스템으로 화면 전환(안 떠 있으면 실행) — 두 앱을 오가는 운영 편의(2026-08-24)
+        # 부속 인식 시스템으로 화면 전환(안 떠 있으면 실행) — 두 앱을 오가는 운영 편의(2026-08-24).
+        # 터치 모니터에서 눈 안 보고도 누르는 버튼이라 크게(≈4배)·굵게.
         self.switch_jyor_btn = QPushButton("🔀 부속 인식")
-        self.switch_jyor_btn.setMinimumHeight(44)
+        _sw_font = QFont(); _sw_font.setPointSize(22); _sw_font.setBold(True)
+        self.switch_jyor_btn.setFont(_sw_font)
+        self.switch_jyor_btn.setMinimumHeight(176)
         self.switch_jyor_btn.clicked.connect(self.switch_to_jyor)
         left_layout.addWidget(self.switch_jyor_btn)
         
