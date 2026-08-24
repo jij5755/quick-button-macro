@@ -846,6 +846,12 @@ class QuickButtonMacro(QMainWindow):
         
         left_layout.addLayout(set_header_layout)
         left_layout.addWidget(self.set_list)
+
+        # 부속 인식 시스템으로 화면 전환(안 떠 있으면 실행) — 두 앱을 오가는 운영 편의(2026-08-24)
+        self.switch_jyor_btn = QPushButton("🔀 부속 인식")
+        self.switch_jyor_btn.setMinimumHeight(44)
+        self.switch_jyor_btn.clicked.connect(self.switch_to_jyor)
+        left_layout.addWidget(self.switch_jyor_btn)
         
         # 우측 패널: 버튼 영역
         right_panel = QWidget()
@@ -3533,3 +3539,44 @@ class QuickButtonMacro(QMainWindow):
             except:
                 pass
 
+
+    # ---- 부속 인식 시스템 화면 전환 (2026-08-24, JYOR 쪽에도 역방향 버튼 있음) ----
+    JYOR_TITLE = "부속 인식 시스템"
+    JYOR_DIR = r"C:\Users\JY1\jYOR\JYObjectRecognition"
+    JYOR_PYTHONW = r"C:\Users\JY1\AppData\Local\Programs\Python\Python313\pythonw.exe"
+
+    def switch_to_jyor(self):
+        """부속 인식 시스템 창을 앞으로(안 떠 있으면 실행)."""
+        user32 = ctypes.windll.user32
+        found = []
+
+        @ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+        def _cb(hwnd, _lparam):
+            if user32.IsWindowVisible(hwnd):
+                n = user32.GetWindowTextLengthW(hwnd)
+                if n:
+                    buf = ctypes.create_unicode_buffer(n + 1)
+                    user32.GetWindowTextW(hwnd, buf, n + 1)
+                    if buf.value.startswith(self.JYOR_TITLE):
+                        found.append(hwnd)
+                        return False          # 첫 일치에서 열거 중단
+            return True
+
+        user32.EnumWindows(_cb, 0)
+        if found:
+            if user32.IsIconic(found[0]):
+                user32.ShowWindow(found[0], 9)      # SW_RESTORE
+            user32.SetForegroundWindow(found[0])
+            return
+        import shutil
+        import subprocess
+        pythonw = self.JYOR_PYTHONW if os.path.exists(self.JYOR_PYTHONW) \
+            else (shutil.which("pythonw") or "pythonw")
+        if not os.path.isdir(self.JYOR_DIR):
+            QMessageBox.information(self, "화면 전환",
+                                    "부속 인식 폴더를 찾지 못했습니다:\n" + self.JYOR_DIR)
+            return
+        try:
+            subprocess.Popen([pythonw, "-m", "pipefitter.app"], cwd=self.JYOR_DIR)
+        except OSError as e:
+            QMessageBox.information(self, "화면 전환", "실행 실패: %s" % e)
