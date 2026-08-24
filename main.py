@@ -23,7 +23,7 @@ if __name__ == '__main__':
     try:
         from main_window import QuickButtonMacro
         window = QuickButtonMacro()
-        window.show()
+        window.showMaximized()      # 항상 최대화로 시작(2026-08-24 사용자 요청)
         sys.exit(app.exec_())
     except Exception as e:
         print(f"심각한 오류 발생: {e}")
