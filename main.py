@@ -3,6 +3,14 @@ from PyQt5.QtWidgets import QApplication, QMessageBox
 import os
 import ctypes
 
+# 프리셋(presets/)·메타는 전부 상대경로라 작업폴더에 좌우된다. 탐색기/전환버튼/
+# 바로가기 등 어디서 실행되든 항상 실행파일 폴더 기준으로 동작하게 고정한다.
+# (2026-08-25 사고: explorer 경유 실행 시 cwd=System32 → 프리셋 없는 빈 화면
+#  + System32에 기본 프리셋 파일 생성)
+_BASE = os.path.dirname(sys.executable if getattr(sys, "frozen", False)
+                        else os.path.abspath(__file__))
+os.chdir(_BASE)
+
 # 중복 실행 방지용 뮤텍스 이름
 _MUTEX_NAME = "QuickButtonMacro_SingleInstance_Mutex"
 _ERROR_ALREADY_EXISTS = 183
