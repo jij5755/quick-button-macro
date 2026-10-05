@@ -15,7 +15,9 @@ class SubLabelButton(QPushButton):
 
     def update_text(self):
         if self.sub_label:
-            self.setText(f"{self.main_label}\n{self.sub_label}")
+            # JYOR 정보 줄이 보이면 빈 줄 하나를 더해 두 줄 레이블을 위로 올린다(정보 줄과 겹침 방지, 2026-10-05)
+            pad = "\n" if getattr(self, "_info_pad", False) else ""
+            self.setText(f"{self.main_label}\n{self.sub_label}{pad}")
             self.setStyleSheet("""
                 QPushButton {
                     text-align: center;
@@ -75,6 +77,9 @@ class SelectableButton(SubLabelButton):
         self.info_label.setText(text or "")
         self.info_label.setVisible(bool(text))
         self._place_info()
+        if getattr(self, "_info_pad", False) != bool(text):
+            self._info_pad = bool(text)
+            self.update_text()
 
     def _place_info(self):
         h = self.info_label.sizeHint().height()
