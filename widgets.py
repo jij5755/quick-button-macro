@@ -64,7 +64,7 @@ class SelectableButton(SubLabelButton):
         self.info_label.setAlignment(Qt.AlignCenter)
         self.info_label.setStyleSheet("color: #0d47a1; background: transparent;")
         f = QFont()
-        f.setPointSize(11)
+        f.setPointSize(15)
         f.setBold(True)
         self.info_label.setFont(f)
         self.info_label.hide()
