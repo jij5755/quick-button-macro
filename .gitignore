@@ -16,3 +16,6 @@ presets/
 preset_meta.json
 button_sets.json
 button_sets_backup_*.json
+
+# 옛 실행파일 보관(롤백용)
+_old_exe_*/
