@@ -109,6 +109,7 @@ from constants import (
     GRID_SIZE, SAVE_FILENAME
 )
 from models import ButtonSet, WidgetClipboard, PresetManager
+import jyor_link
 from widgets import SelectableButton, SelectableTextBox, SetListWidget, DraggableSetItem, ButtonContainerWidget
 from dialogs import (
     ButtonSettingsDialog, ButtonStyleDialog, TextBoxSettingsDialog,
@@ -182,6 +183,29 @@ class QuickButtonMacro(QMainWindow):
         # 컨테이너 위젯에 키보드 포커스 설정
         self.buttons_container.setFocusPolicy(Qt.StrongFocus)
         self.buttons_container.setFocus()
+
+        # JYOR 연동(2026-10-05): 버튼 품목번호 → 구경·가격을 30초마다 다시 읽어 버튼 아래에 표시
+        self._jyor_timer = QTimer(self)
+        self._jyor_timer.timeout.connect(self.refresh_jyor_info)
+        self._jyor_timer.start(jyor_link.REFRESH_MS)
+        self.refresh_jyor_info()
+
+    def refresh_jyor_info(self):
+        """지금 화면 버튼들의 품목번호를 JYOR DB에서 한 번에 읽어 정보 줄 갱신(읽기 전용, 실패 = 빈칸)."""
+        try:
+            info = jyor_link.lookup([getattr(b, "erp_code", "") for b in self.buttons])
+            for b in self.buttons:
+                b.set_info(jyor_link.info_text(info.get(getattr(b, "erp_code", ""))))
+        except Exception as e:
+            print(f"JYOR 정보 갱신 실패: {e}")
+
+    def _set_button_erp(self, button, code):
+        code = str(code or "").strip()
+        button.erp_code = code
+        button.data["erp_code"] = code
+        idx = self.buttons.index(button) if button in self.buttons else -1
+        if 0 <= idx < len(self.button_data):
+            self.button_data[idx]["erp_code"] = code
 
     def resizeEvent(self, event):
         """창 크기 변경 시 처리"""
@@ -1557,6 +1581,7 @@ class QuickButtonMacro(QMainWindow):
                     "label": button.main_label,  # 첫 번째 줄 레이블 저장
                     "label2": button.sub_label,  # 두 번째 줄 레이블 저장
                     "text": self.button_data[i]["text"],
+                    "erp_code": getattr(button, "erp_code", ""),  # JYOR 품목번호(2026-10-05)
                     "x": pos.x(),
                     "y": pos.y(),
                     "width": size.width(),
@@ -1671,7 +1696,8 @@ class QuickButtonMacro(QMainWindow):
                 custom_font = button_info.get("custom_font", False)
                 custom_color = button_info.get("custom_color", False)
                 
-                self.create_button(button_info["label"], button_info["text"], x, y, width, height, label2)
+                self.create_button(button_info["label"], button_info["text"], x, y, width, height, label2,
+                                   erp_code=button_info.get("erp_code", ""))
                 
                 # 마지막에 생성된 버튼의 개별 설정 상태 설정
                 if len(self.buttons) > 0:
@@ -1897,6 +1923,7 @@ class QuickButtonMacro(QMainWindow):
                 "label": button_info["label"],
                 "label2": button_info.get("label2", ""),
                 "text": button_info["text"],
+                "erp_code": button_info.get("erp_code", ""),
                 "custom_size": button_info.get("custom_size", False),
                 "custom_font": button_info.get("custom_font", False),
                 "custom_color": button_info.get("custom_color", False)
@@ -1954,7 +1981,8 @@ class QuickButtonMacro(QMainWindow):
                         button_info["y"],
                         button_info["width"],
                         button_info["height"],
-                        button_info.get("label2", "")  # 두 번째 줄 레이블
+                        button_info.get("label2", ""),  # 두 번째 줄 레이블
+                        erp_code=button_info.get("erp_code", "")
                     )
                     
                     # 마지막 생성된 버튼의 개별 설정 상태 설정
@@ -1986,6 +2014,7 @@ class QuickButtonMacro(QMainWindow):
                     "label": button.main_label,
                     "label2": button.sub_label,
                     "text": self.button_data[button_idx]["text"],
+                    "erp_code": getattr(button, "erp_code", ""),
                     "custom_size": button.custom_size,
                     "custom_font": button.custom_font,
                     "custom_color": button.custom_color
@@ -2019,10 +2048,12 @@ class QuickButtonMacro(QMainWindow):
                     self.button_data[button_idx]["label"] = updated_data["label"]
                     self.button_data[button_idx]["label2"] = updated_data.get("label2", "")
                     self.button_data[button_idx]["text"] = updated_data["text"]
+                self._set_button_erp(button, updated_data.get("erp_code", ""))
 
             # 변경 사항 저장
             self.save_current_set()
             self.save_sets()
+            self.refresh_jyor_info()
 
             # 완료 메시지
             count = len(selected_buttons)
@@ -2324,18 +2355,19 @@ class QuickButtonMacro(QMainWindow):
 
 
     
-    def create_button(self, label, text, x=10, y=10, width=None, height=None, label2=""):
-        """버튼 생성"""
+    def create_button(self, label, text, x=10, y=10, width=None, height=None, label2="", erp_code=""):
+        """버튼 생성. erp_code = JYOR 품목번호(2026-10-05, 버튼 아래 구경·가격 표시)"""
         if width is None:
             width = self.button_width
         if height is None:
             height = self.button_height
-        
+
         # 버튼 데이터 생성
         button_data = {
-            "label": label, 
-            "label2": label2, 
+            "label": label,
+            "label2": label2,
             "text": text,
+            "erp_code": str(erp_code or "").strip(),
             "custom_style": False,  # 통합 스타일 플래그 추가
             "custom_size": False,  # 기본 상태는 개별 설정 비활성화
             "custom_font": False,
@@ -2425,6 +2457,7 @@ class QuickButtonMacro(QMainWindow):
         dialog = ButtonSettingsDialog(parent=self)
         if dialog.exec_():
             label, label2, text = dialog.get_values()
+            erp_code = dialog.get_erp_code()
             if label:  # 텍스트는 비어있어도 허용
                 # 새 버튼 위치 계산
                 x = 10
@@ -2441,11 +2474,12 @@ class QuickButtonMacro(QMainWindow):
                         x = 10
                         y = last_button.y() + self.button_height + 10
                 
-                self.create_button(label, text, x, y, None, None, label2)
-                
+                self.create_button(label, text, x, y, None, None, label2, erp_code=erp_code)
+
                 # 세트 데이터 갱신
                 self.save_current_set()
                 self.save_sets()
+                self.refresh_jyor_info()
     
     def add_textbox_dialog(self):
         """새 텍스트 박스 추가 대화상자"""
@@ -2491,11 +2525,13 @@ class QuickButtonMacro(QMainWindow):
             button.main_label,  # 첫 번째 줄 레이블
             button.sub_label,   # 두 번째 줄 레이블
             current_data["text"],
-            parent=self
+            parent=self,
+            erp_code=getattr(button, "erp_code", "")
         )
-        
+
         if dialog.exec_():
             label, label2, text = dialog.get_values()
+            self._set_button_erp(button, dialog.get_erp_code())
             if label:  # 텍스트는 비어있어도 허용
                 # 버튼 레이블 업데이트
                 button.set_main_label(label)
@@ -2505,10 +2541,11 @@ class QuickButtonMacro(QMainWindow):
                 self.button_data[button_idx]["label"] = label
                 self.button_data[button_idx]["label2"] = label2
                 self.button_data[button_idx]["text"] = text
-                
+
                 # 세트 데이터 갱신
                 self.save_current_set()
                 self.save_sets()
+                self.refresh_jyor_info()
     
     def edit_textbox(self, textbox):
         """텍스트 박스 편집"""

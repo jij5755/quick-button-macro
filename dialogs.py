@@ -334,6 +334,7 @@ class QuickEditDialog(QDialog):
         header_layout.addWidget(QLabel("레이블(첫째 줄)"), 1)
         header_layout.addWidget(QLabel("레이블(둘째 줄)"), 1)
         header_layout.addWidget(QLabel("붙여넣기 텍스트"), 3)
+        header_layout.addWidget(QLabel("JYOR 품목번호"), 1)
         header_layout.addWidget(QLabel(""), QLabel().sizeHint().width())
         self.form_layout.addLayout(header_layout)
         line = QFrame()
@@ -341,7 +342,8 @@ class QuickEditDialog(QDialog):
         line.setFrameShadow(QFrame.Sunken)
         self.form_layout.addWidget(line)
         for button_data in self.buttons_data:
-            self.add_button_row(button_data["label"], button_data["text"], button_data.get("label2", ""))
+            self.add_button_row(button_data["label"], button_data["text"], button_data.get("label2", ""),
+                                button_data.get("erp_code", ""))
         scroll_area.setWidget(content_widget)
         buttons_layout = QHBoxLayout()
         add_button = QPushButton("버튼 추가")
@@ -358,7 +360,7 @@ class QuickEditDialog(QDialog):
         main_layout.addLayout(buttons_layout)
         self.setLayout(main_layout)
 
-    def add_button_row(self, label="", text="", label2=""):
+    def add_button_row(self, label="", text="", label2="", erp_code=""):
         row_widget = QWidget()
         row_layout = QHBoxLayout(row_widget)
         row_layout.setContentsMargins(0, 5, 0, 5)
@@ -374,14 +376,18 @@ class QuickEditDialog(QDialog):
         delete_button.clicked.connect(lambda: self.delete_button_row(row_widget))
         row_layout.addWidget(label_edit, 1)
         row_layout.addWidget(label2_edit, 1)
+        erp_edit = QLineEdit(erp_code or "")
+        erp_edit.setPlaceholderText("품목번호")
         row_layout.addWidget(text_edit, 3)
+        row_layout.addWidget(erp_edit, 1)
         row_layout.addWidget(delete_button)
         self.form_layout.addWidget(row_widget)
         self.button_rows.append({
             "widget": row_widget,
             "label_edit": label_edit,
             "label2_edit": label2_edit,
-            "text_edit": text_edit
+            "text_edit": text_edit,
+            "erp_edit": erp_edit
         })
         return row_widget
 
@@ -403,7 +409,7 @@ class QuickEditDialog(QDialog):
             label2 = row["label2_edit"].text().strip()
             text = row["text_edit"].toPlainText()
             result.append({
-                "label": label, "label2": label2, "text": text,
+                "label": label, "label2": label2, "text": text, "erp_code": row["erp_edit"].text().strip(),
                 "x": 10, "y": 10, "width": 150, "height": 40,
                 "custom_size": False, "custom_font": False, "custom_color": False
             })
@@ -412,7 +418,7 @@ class QuickEditDialog(QDialog):
 
 class ButtonSettingsDialog(QDialog):
     """버튼 설정 대화상자"""
-    def __init__(self, label="", label2="", text="", parent=None):
+    def __init__(self, label="", label2="", text="", parent=None, erp_code=""):
         super().__init__(parent)
         self.setWindowTitle("버튼 설정")
         self.resize(350, 200)
@@ -422,9 +428,13 @@ class ButtonSettingsDialog(QDialog):
         self.text_input = QTextEdit(text)
         self.text_input.setAcceptRichText(False)
         self.text_input.setMinimumHeight(70)
+        # JYOR 품목번호(2026-10-05): 버튼 아래에 그 품목의 구경·가격 표시. 비우면 표시 없음
+        self.erp_input = QLineEdit(erp_code or "")
+        self.erp_input.setPlaceholderText("예) 35729 — 비우면 표시 안 함")
         layout.addRow("버튼 레이블(첫째 줄):", self.label_input)
         layout.addRow("버튼 레이블(둘째 줄):", self.label2_input)
         layout.addRow("붙여넣기 텍스트:", self.text_input)
+        layout.addRow("JYOR 품목번호:", self.erp_input)
         note_label = QLabel("※ 둘째 줄 레이블은 선택사항입니다.")
         note_label.setStyleSheet("color: #666; font-style: italic;")
         layout.addRow(note_label)
@@ -440,6 +450,9 @@ class ButtonSettingsDialog(QDialog):
 
     def get_values(self):
         return self.label_input.text(), self.label2_input.text(), self.text_input.toPlainText()
+
+    def get_erp_code(self):
+        return self.erp_input.text().strip()
 
 
 class SetNameDialog(QDialog):

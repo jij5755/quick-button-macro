@@ -171,7 +171,8 @@ class WidgetClipboard:
                 button = parent.create_button(
                     data["label"], data["text"], x, y,
                     data.get("width", 150), data.get("height", 40),
-                    data.get("label2", "")
+                    data.get("label2", ""),
+                    erp_code=data.get("erp_code", "")
                 )
                 button.custom_size = data.get("custom_size", False)
                 button.custom_font = data.get("custom_font", False)

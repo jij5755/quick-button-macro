@@ -1,6 +1,6 @@
 from PyQt5.QtWidgets import QPushButton, QLabel, QWidget, QListWidget, QListWidgetItem
 from PyQt5.QtCore import Qt, QPoint, QRect
-from PyQt5.QtGui import QColor, QPainter, QPen
+from PyQt5.QtGui import QColor, QPainter, QPen, QFont
 
 from constants import GRID_SIZE, BORDER_MARGIN, MIN_WIDGET_WIDTH, MIN_WIDGET_HEIGHT
 
@@ -56,6 +56,34 @@ class SelectableButton(SubLabelButton):
         self.custom_color = self.data.get("custom_color", False)
 
         self.grid_size = GRID_SIZE
+
+        # JYOR 연동(2026-10-05): 품목번호(erp_code)가 있으면 버튼 아래쪽에 '구경 · 가격' 한 줄(클릭은 버튼으로 통과)
+        self.erp_code = str(self.data.get("erp_code", "") or "").strip()
+        self.info_label = QLabel("", self)
+        self.info_label.setAttribute(Qt.WA_TransparentForMouseEvents)
+        self.info_label.setAlignment(Qt.AlignCenter)
+        self.info_label.setStyleSheet("color: #0d47a1; background: transparent;")
+        f = QFont()
+        f.setPointSize(11)
+        f.setBold(True)
+        self.info_label.setFont(f)
+        self.info_label.hide()
+        self._place_info()
+
+    def set_info(self, text):
+        """JYOR 정보 줄(빈 문자열이면 숨김)."""
+        self.info_label.setText(text or "")
+        self.info_label.setVisible(bool(text))
+        self._place_info()
+
+    def _place_info(self):
+        h = self.info_label.sizeHint().height()
+        self.info_label.setGeometry(2, max(0, self.height() - h - 3), max(0, self.width() - 4), h)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if hasattr(self, "info_label"):
+            self._place_info()
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
