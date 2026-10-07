@@ -52,6 +52,8 @@ python main.py
 
 [PyInstaller](https://pyinstaller.org/)와 동봉된 `QuickButtonMacro.spec` 파일로 단일 실행 파일(.exe)을 만들 수 있습니다.
 
+**`빌드.bat` 더블클릭이 정석**입니다 — 매크로 실행 중이면 중단, 프리셋을 `프리셋백업/<날짜>-빌드전/`에 복사, 분리 폴더에 빌드, exe+`_internal`만 교체. 손으로 할 때는:
+
 ```bash
 pip install pyinstaller
 pyinstaller QuickButtonMacro.spec --noconfirm --distpath build/dist_new
