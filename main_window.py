@@ -1748,6 +1748,9 @@ class QuickButtonMacro(QMainWindow):
             # 컨테이너 크기 업데이트
             self.buttons_container.updateMinimumSize()
 
+            # JYOR 구경·가격은 세트를 바꾼 즉시(30초 타이머를 기다리면 빈칸으로 보임, 2026-10-07)
+            self.refresh_jyor_info()
+
             # 자동 저장
             self.save_sets()
         except Exception as e:
