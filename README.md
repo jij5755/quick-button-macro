@@ -54,10 +54,13 @@ python main.py
 
 ```bash
 pip install pyinstaller
-pyinstaller QuickButtonMacro.spec
+pyinstaller QuickButtonMacro.spec --noconfirm --distpath build/dist_new
 ```
 
-빌드 결과물은 `dist/QuickButtonMacro.exe`로 생성됩니다.
+빌드 결과물은 `build/dist_new/QuickButtonMacro/`(onedir)에 생깁니다. 실행본 `dist/QuickButtonMacro/`에는 **`QuickButtonMacro.exe`와 `_internal/`만** 덮어쓰세요.
+
+> ⚠️ `dist/QuickButtonMacro/` 안에 프리셋(`presets/`, `preset_meta.json`)이 함께 삽니다. `--distpath` 없이 빌드하면 PyInstaller가
+> 그 폴더를 **통째로 지우고** 다시 만들어 프리셋이 사라집니다(2026-10-07 실제 사고). 빌드 전에 ① 매크로 종료 ② `presets/`를 밖에 복사.
 
 ## 프로젝트 구조
 
