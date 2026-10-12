@@ -2,6 +2,7 @@ import sys
 import json
 import os
 import copy
+import shutil
 
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QPushButton, QVBoxLayout, QHBoxLayout,
@@ -105,16 +106,18 @@ def press_enter():
 from constants import (
     DEFAULT_BUTTON_WIDTH, DEFAULT_BUTTON_HEIGHT,
     DEFAULT_TEXTBOX_WIDTH, DEFAULT_TEXTBOX_HEIGHT,
+    DEFAULT_IMAGE_WIDTH, DEFAULT_IMAGE_HEIGHT, IMAGES_DIR,
     DEFAULT_FONT_FAMILY, DEFAULT_FONT_SIZE, DEFAULT_TEXT_COLOR,
     GRID_SIZE, SAVE_FILENAME
 )
 from models import ButtonSet, WidgetClipboard, PresetManager
 import jyor_link
-from widgets import SelectableButton, SelectableTextBox, SetListWidget, DraggableSetItem, ButtonContainerWidget
+from widgets import (SelectableButton, SelectableTextBox, SelectableImageButton,
+                     SetListWidget, DraggableSetItem, ButtonContainerWidget)
 from dialogs import (
     ButtonSettingsDialog, ButtonStyleDialog, TextBoxSettingsDialog,
     SetFontSettingsDialog, FontSettingsDialog, ButtonSizeDialog,
-    TextBoxSizeDialog, SetNameDialog, QuickEditDialog
+    TextBoxSizeDialog, SetNameDialog, QuickEditDialog, ImageButtonSettingsDialog
 )
 
 class QuickButtonMacro(QMainWindow):
@@ -133,7 +136,11 @@ class QuickButtonMacro(QMainWindow):
         self.textbox_height = 100
         self.textboxes = []  # 현재 세트의 활성 텍스트 박스 객체
         self.textbox_data = []  # 현재 세트의 텍스트 박스 데이터
-        
+
+        # 이미지 버튼(2026-10-12): 부속 사진을 버튼처럼 배치, 터치하면 매크로 실행
+        self.images = []      # 현재 세트의 활성 이미지 버튼 객체
+        self.image_data = []  # 현재 세트의 이미지 버튼 데이터
+
         # 세트 리스트 폰트 및 색상
         self.set_list_font = QFont("맑은 고딕", 10, QFont.Bold)  # 세트 리스트 기본 글꼴
         self.set_list_color = QColor("#FF0000")  # 세트 리스트 기본 색상 (빨강)
@@ -193,16 +200,23 @@ class QuickButtonMacro(QMainWindow):
     def refresh_jyor_info(self):
         """지금 화면 버튼들의 품목번호를 JYOR DB에서 한 번에 읽어 정보 줄 갱신(읽기 전용, 실패 = 빈칸)."""
         try:
-            info = jyor_link.lookup([getattr(b, "erp_code", "") for b in self.buttons])
-            for b in self.buttons:
-                b.set_info(jyor_link.info_text(info.get(getattr(b, "erp_code", ""))))
+            widgets = list(self.buttons) + list(self.images)
+            info = jyor_link.lookup([getattr(w, "erp_code", "") for w in widgets])
+            for w in widgets:
+                w.set_info(jyor_link.info_text(info.get(getattr(w, "erp_code", ""))))
         except Exception as e:
             print(f"JYOR 정보 갱신 실패: {e}")
 
     def _set_button_erp(self, button, code):
+        """버튼/이미지 버튼의 JYOR 품목번호를 위젯·데이터 양쪽에 반영"""
         code = str(code or "").strip()
         button.erp_code = code
         button.data["erp_code"] = code
+        if button in self.images:
+            idx = self.images.index(button)
+            if idx < len(self.image_data):
+                self.image_data[idx]["erp_code"] = code
+            return
         idx = self.buttons.index(button) if button in self.buttons else -1
         if 0 <= idx < len(self.button_data):
             self.button_data[idx]["erp_code"] = code
@@ -355,7 +369,11 @@ class QuickButtonMacro(QMainWindow):
                 # 텍스트 박스 수 비교
                 if len(set_obj.textboxes) != len(saved_set.get('textboxes', [])):
                     return True
-            
+
+                # 이미지 버튼 수 비교
+                if len(set_obj.images) != len(saved_set.get('images', [])):
+                    return True
+
             # 변경 사항 없음으로 판단
             return False
         except Exception:
@@ -497,7 +515,7 @@ class QuickButtonMacro(QMainWindow):
             return
         
         # 현재 세트 데이터 저장
-        if self.current_set_index < len(self.button_sets) and (self.buttons or self.textboxes):
+        if self.current_set_index < len(self.button_sets) and (self.buttons or self.textboxes or self.images):
             self.save_current_set()
         
         # 모든 세트의 스타일 정보 저장 (추가된 부분)
@@ -523,7 +541,7 @@ class QuickButtonMacro(QMainWindow):
     def duplicate_preset(self):
         """현재 프리셋 복제"""
         # 현재 세트 데이터 저장
-        if self.current_set_index < len(self.button_sets) and (self.buttons or self.textboxes):
+        if self.current_set_index < len(self.button_sets) and (self.buttons or self.textboxes or self.images):
             self.save_current_set()
         
         # 프리셋 데이터 준비
@@ -589,12 +607,16 @@ class QuickButtonMacro(QMainWindow):
                     button.deleteLater()
                 for textbox in self.textboxes:
                     textbox.deleteLater()
-                
+                for image in self.images:
+                    image.deleteLater()
+
                 self.buttons = []
                 self.button_data = []
                 self.textboxes = []
                 self.textbox_data = []
-                
+                self.images = []
+                self.image_data = []
+
                 # 세트 로드
                 self.button_sets = []
                 for set_data in data['sets']:
@@ -721,7 +743,7 @@ class QuickButtonMacro(QMainWindow):
         """기존 방식으로 세트 데이터 저장 (button_sets.json)"""
         try:
             # 현재 세트 데이터 저장
-            if self.current_set_index < len(self.button_sets) and (self.buttons or self.textboxes):
+            if self.current_set_index < len(self.button_sets) and (self.buttons or self.textboxes or self.images):
                 self.save_current_set()
             
             # 모든 세트를 사전 형태로 변환
@@ -743,7 +765,7 @@ class QuickButtonMacro(QMainWindow):
         """어플리케이션 종료 전 설정 저장"""
         try:
             # 현재 세트 데이터 저장
-            if self.current_set_index < len(self.button_sets) and (self.buttons or self.textboxes):
+            if self.current_set_index < len(self.button_sets) and (self.buttons or self.textboxes or self.images):
                 self.save_current_set()
             
             # 프리셋에 저장
@@ -819,7 +841,11 @@ class QuickButtonMacro(QMainWindow):
         # 텍스트 박스 추가 버튼
         add_textbox_button = QPushButton('텍스트 박스 추가')
         add_textbox_button.clicked.connect(self.add_textbox_dialog)
-        
+
+        # 이미지 버튼 추가 버튼(2026-10-12)
+        add_image_button = QPushButton('이미지 버튼 추가')
+        add_image_button.clicked.connect(self.add_image_dialog)
+
         set_button_size = QPushButton('버튼 크기 설정')
         set_button_size.clicked.connect(self.set_button_size)
         set_font_button = QPushButton('버튼 글꼴 설정')
@@ -837,6 +863,7 @@ class QuickButtonMacro(QMainWindow):
         header_layout.addWidget(set_position_button)
         header_layout.addWidget(add_button)
         header_layout.addWidget(add_textbox_button)
+        header_layout.addWidget(add_image_button)
         header_layout.addWidget(set_button_size)
         header_layout.addWidget(set_font_button)
         
@@ -1126,19 +1153,28 @@ class QuickButtonMacro(QMainWindow):
         for textbox in self.textboxes:
             if textbox.is_selected:
                 selected_widgets.append(textbox)
-        
+
+        # 선택된 이미지 버튼 추가
+        for image in self.images:
+            if image.is_selected:
+                selected_widgets.append(image)
+
         return selected_widgets
-    
+
     def clear_all_selections(self):
         """모든 위젯 선택 해제"""
         # 버튼 선택 해제
         for button in self.buttons:
             button.set_selected(False)
-        
+
         # 텍스트 박스 선택 해제
         for textbox in self.textboxes:
             textbox.set_selected(False)
-    
+
+        # 이미지 버튼 선택 해제
+        for image in self.images:
+            image.set_selected(False)
+
     def select_widgets_in_rect(self, rect):
         """지정된 영역 내의 위젯 선택"""
         # 영역 내 버튼 선택
@@ -1152,7 +1188,12 @@ class QuickButtonMacro(QMainWindow):
             textbox_rect = textbox.geometry()
             if rect.intersects(textbox_rect):
                 textbox.set_selected(True)
-    
+
+        # 영역 내 이미지 버튼 선택
+        for image in self.images:
+            if rect.intersects(image.geometry()):
+                image.set_selected(True)
+
     def delete_selected_items(self):
         """선택된 모든 위젯 삭제"""
         # 삭제할 버튼 목록 생성 (역순으로 처리하기 위해)
@@ -1176,9 +1217,16 @@ class QuickButtonMacro(QMainWindow):
                 self.textbox_data.pop(idx)
                 self.textboxes.pop(idx)
                 textbox.deleteLater()
-        
+
+        # 삭제할 이미지 버튼 (역순으로 처리)
+        images_to_delete = [(i, image) for i, image in enumerate(self.images) if image.is_selected]
+        for idx, image in sorted(images_to_delete, key=lambda x: x[0], reverse=True):
+            self.image_data.pop(idx)
+            self.images.pop(idx)
+            image.deleteLater()
+
         # 세트 데이터 갱신 및 저장
-        if buttons_to_delete or textboxes_to_delete:
+        if buttons_to_delete or textboxes_to_delete or images_to_delete:
             self.save_current_set()
             self.save_sets()
         
@@ -1552,7 +1600,7 @@ class QuickButtonMacro(QMainWindow):
         """세트 선택 이벤트 처리"""
         if current_row >= 0 and current_row < len(self.button_sets):
             # 현재 세트 데이터 저장 (이전 세트에서 변경된 내용 반영)
-            if self.current_set_index < len(self.button_sets) and (self.buttons or self.textboxes):
+            if self.current_set_index < len(self.button_sets) and (self.buttons or self.textboxes or self.images):
                 self.save_current_set()
             
             # 새 세트로 변경
@@ -1620,9 +1668,28 @@ class QuickButtonMacro(QMainWindow):
                     "custom_color": textbox.custom_color
                 })
         
+        # 현재 이미지 버튼 상태 저장 (프리셋에는 파일명만 — 실제 파일은 images/ 폴더)
+        set_images = []
+        for i, image in enumerate(self.images):
+            if i < len(self.image_data):
+                pos = image.pos()
+                size = image.size()
+                set_images.append({
+                    "file": image.image_file,
+                    "text": self.image_data[i]["text"],
+                    "erp_code": getattr(image, "erp_code", ""),
+                    "x": pos.x(),
+                    "y": pos.y(),
+                    "width": size.width(),
+                    "height": size.height(),
+                    "rotation": image.rotation,
+                    "flip": image.flip
+                })
+
         # 세트 데이터 업데이트
         self.button_sets[self.current_set_index].buttons = set_buttons
         self.button_sets[self.current_set_index].textboxes = set_textboxes
+        self.button_sets[self.current_set_index].images = set_images
 
         set_index = self.current_set_index
         item = self.set_list.item(set_index) if set_index < self.set_list.count() else None
@@ -1670,10 +1737,17 @@ class QuickButtonMacro(QMainWindow):
         # 이전 텍스트 박스 정리
         for textbox in self.textboxes:
             textbox.deleteLater()
-        
+
         self.textboxes = []
         self.textbox_data = []
-        
+
+        # 이전 이미지 버튼 정리
+        for image in self.images:
+            image.deleteLater()
+
+        self.images = []
+        self.image_data = []
+
         # 새 세트 로드
         self.current_set_index = set_index
         current_set = self.button_sets[set_index]
@@ -1738,7 +1812,17 @@ class QuickButtonMacro(QMainWindow):
                         textbox.custom_font = custom_font
                         textbox.custom_color = custom_color
                         textbox.update_selection_style()
-            
+
+            # 세트의 이미지 버튼 생성
+            for image_info in getattr(current_set, 'images', []):
+                self.create_image_button(
+                    image_info["file"], image_info.get("text", ""),
+                    image_info.get("x", 10), image_info.get("y", 10),
+                    image_info.get("width", DEFAULT_IMAGE_WIDTH), image_info.get("height", DEFAULT_IMAGE_HEIGHT),
+                    erp_code=image_info.get("erp_code", ""),
+                    rotation=image_info.get("rotation", 0), flip=image_info.get("flip", False)
+                )
+
             # 모든 위젯 생성 성공 - 이제 화면 상태가 세트 데이터와 일치함
             self._current_set_load_failed = False
 
@@ -1893,9 +1977,10 @@ class QuickButtonMacro(QMainWindow):
         # 복사할 버튼 데이터 생성
         new_buttons = copy.deepcopy(original_set.buttons)
         new_textboxes = copy.deepcopy(original_set.textboxes) if hasattr(original_set, 'textboxes') else []
-        
+        new_images = copy.deepcopy(getattr(original_set, 'images', []))
+
         # 새 세트 추가
-        self.button_sets.append(ButtonSet(new_set_name, new_buttons, new_textboxes))
+        self.button_sets.append(ButtonSet(new_set_name, new_buttons, new_textboxes, new_images))
         
         # UI 업데이트
         self.update_set_list()
@@ -1912,7 +1997,7 @@ class QuickButtonMacro(QMainWindow):
             return
         
         # 현재 세트의 데이터 저장 (다른 세트 편집 시)
-        if self.current_set_index != set_index and self.current_set_index < len(self.button_sets) and (self.buttons or self.textboxes):
+        if self.current_set_index != set_index and self.current_set_index < len(self.button_sets) and (self.buttons or self.textboxes or self.images):
             self.save_current_set()
         
         # 선택한 세트의 버튼 데이터 가져오기
@@ -2455,6 +2540,188 @@ class QuickButtonMacro(QMainWindow):
         
         return textbox
     
+    # ---- 이미지 버튼(2026-10-12) ----
+    def create_image_button(self, image_file, text, x=10, y=10, width=None, height=None, erp_code="",
+                            rotation=0, flip=False):
+        """이미지 버튼 생성. image_file = images/ 폴더 안 파일명(프리셋에 그대로 저장)"""
+        if width is None:
+            width = DEFAULT_IMAGE_WIDTH
+        if height is None:
+            height = DEFAULT_IMAGE_HEIGHT
+
+        image_data = {
+            "file": image_file,
+            "text": text,
+            "erp_code": str(erp_code or "").strip(),
+            "rotation": int(rotation or 0) % 360,
+            "flip": bool(flip),
+        }
+        image = SelectableImageButton(image_file, self, x, y, width, height, image_data)
+        image.setContextMenuPolicy(Qt.CustomContextMenu)
+        image.customContextMenuRequested.connect(lambda pos, im=image: self.show_image_menu(pos, im))
+        image.setParent(self.buttons_container)
+        image.show()
+
+        self.images.append(image)
+        self.image_data.append(image_data)
+        return image
+
+    def import_image_file(self, src_path):
+        """사진을 images/ 폴더로 복사하고 저장용 파일명을 돌려준다. 같은 이름이 있으면 _2, _3…을 붙인다."""
+        os.makedirs(IMAGES_DIR, exist_ok=True)
+        src_abs = os.path.abspath(src_path)
+        images_abs = os.path.abspath(IMAGES_DIR)
+        # 이미 images/ 안에 있는 파일이면 복사하지 않는다
+        if os.path.dirname(src_abs) == images_abs:
+            return os.path.basename(src_abs)
+        base, ext = os.path.splitext(os.path.basename(src_path))
+        name = base + ext
+        counter = 1
+        while os.path.exists(os.path.join(IMAGES_DIR, name)):
+            counter += 1
+            name = f"{base}_{counter}{ext}"
+        shutil.copy2(src_path, os.path.join(IMAGES_DIR, name))
+        return name
+
+    def _next_image_position(self):
+        """새 이미지 버튼 자리: 마지막 이미지 오른쪽, 넘치면 다음 줄. 이미지가 없으면 버튼/텍스트 박스 아래."""
+        if self.images:
+            last = self.images[-1]
+            x = last.x() + last.width() + 10
+            y = last.y()
+            if x + DEFAULT_IMAGE_WIDTH > self.buttons_container.width():
+                x = 10
+                y = last.y() + last.height() + 10
+            return x, y
+        others = list(self.buttons) + list(self.textboxes)
+        if others:
+            return 10, max(w.y() + w.height() for w in others) + 20
+        return 10, 10
+
+    def add_image_dialog(self):
+        """새 이미지 버튼 추가 대화상자"""
+        dialog = ImageButtonSettingsDialog(parent=self)
+        if not dialog.exec_():
+            return
+        src_path, text, erp_code = dialog.get_values()
+        if not src_path:
+            QMessageBox.warning(self, "이미지 버튼", "사진 파일을 선택해 주세요.")
+            return
+        try:
+            stored = self.import_image_file(src_path)
+        except OSError as e:
+            QMessageBox.warning(self, "이미지 버튼", f"사진을 images 폴더로 복사하지 못했습니다.\n{e}")
+            return
+        x, y = self._next_image_position()
+        self.create_image_button(stored, text, x, y, erp_code=erp_code)
+        self.buttons_container.updateMinimumSize()
+        self.save_current_set()
+        self.save_sets()
+        self.refresh_jyor_info()
+
+    def edit_image_button(self, image):
+        """이미지 버튼 편집(사진 바꾸기, 텍스트, 품목번호)"""
+        if image not in self.images:
+            return
+        idx = self.images.index(image)
+        dialog = ImageButtonSettingsDialog(image.image_file, self.image_data[idx]["text"],
+                                           getattr(image, "erp_code", ""), parent=self)
+        if not dialog.exec_():
+            return
+        src_path, text, erp_code = dialog.get_values()
+        if src_path:
+            try:
+                stored = self.import_image_file(src_path)
+            except OSError as e:
+                QMessageBox.warning(self, "이미지 버튼", f"사진을 images 폴더로 복사하지 못했습니다.\n{e}")
+                return
+            image.load_image(stored)
+            self.image_data[idx]["file"] = stored
+        self.image_data[idx]["text"] = text
+        self._set_button_erp(image, erp_code)
+        self.save_current_set()
+        self.save_sets()
+        self.refresh_jyor_info()
+
+    def delete_image_button(self, image):
+        """이미지 버튼 삭제"""
+        if image not in self.images:
+            return
+        idx = self.images.index(image)
+        self.images.pop(idx)
+        self.image_data.pop(idx)
+        image.deleteLater()
+        self.save_current_set()
+        self.save_sets()
+
+    def rotate_image_button(self, image, delta):
+        """이미지 버튼을 delta도 돌린다(+90 = 오른쪽, -90 = 왼쪽)"""
+        if image not in self.images:
+            return
+        image.set_orientation(rotation=image.rotation + delta)
+        self.save_current_set()
+        self.save_sets()
+
+    def flip_image_button(self, image):
+        """이미지 버튼 좌우 반전 토글"""
+        if image not in self.images:
+            return
+        image.set_orientation(flip=not image.flip)
+        self.save_current_set()
+        self.save_sets()
+
+    def copy_image_button(self, image):
+        """이미지 버튼 복사(살짝 비껴서 같은 사진·텍스트로)"""
+        if image not in self.images:
+            return
+        idx = self.images.index(image)
+        x, y = image.x() + 20, image.y() + 20
+        if x + image.width() > self.buttons_container.width():
+            x = 10
+        if y + image.height() > self.buttons_container.height():
+            y = 10
+        self.create_image_button(image.image_file, self.image_data[idx]["text"], x, y,
+                                 image.width(), image.height(), erp_code=getattr(image, "erp_code", ""),
+                                 rotation=image.rotation, flip=image.flip)
+        self.save_current_set()
+        self.save_sets()
+        self.refresh_jyor_info()
+
+    def show_image_menu(self, position, image):
+        """이미지 버튼 컨텍스트 메뉴"""
+        menu = QMenu()
+        edit_action = QAction("편집", self)
+        edit_action.triggered.connect(lambda: self.edit_image_button(image))
+        delete_action = QAction("삭제", self)
+        delete_action.triggered.connect(lambda: self.delete_image_button(image))
+        copy_action = QAction("복사", self)
+        copy_action.triggered.connect(lambda: self.copy_image_button(image))
+        menu.addAction(edit_action)
+        menu.addAction(delete_action)
+        menu.addAction(copy_action)
+        # 회전·반전: 파일은 그대로, 이 버튼만 돌아간다
+        menu.addSeparator()
+        rotate_left_action = QAction("↺ 왼쪽으로 90° 돌리기", self)
+        rotate_left_action.triggered.connect(lambda: self.rotate_image_button(image, -90))
+        rotate_right_action = QAction("↻ 오른쪽으로 90° 돌리기", self)
+        rotate_right_action.triggered.connect(lambda: self.rotate_image_button(image, 90))
+        flip_action = QAction("⇋ 좌우 반전", self)
+        flip_action.setCheckable(True)
+        flip_action.setChecked(image.flip)
+        flip_action.triggered.connect(lambda: self.flip_image_button(image))
+        menu.addAction(rotate_left_action)
+        menu.addAction(rotate_right_action)
+        menu.addAction(flip_action)
+        menu.addSeparator()
+        toggle_mode_action = QAction("편집 모드 전환", self)
+        toggle_mode_action.triggered.connect(lambda: self.edit_mode_checkbox.toggle())
+        menu.addAction(toggle_mode_action)
+        menu.addSeparator()
+        clip_action = QAction("복사 (Ctrl+C)", self)
+        clip_action.triggered.connect(self.copy_selected_widgets_to_clipboard)
+        menu.addAction(clip_action)
+        menu.exec_(image.mapToGlobal(position))
+
     def add_button_dialog(self):
         """새 버튼 추가 대화상자"""
         dialog = ButtonSettingsDialog(parent=self)
@@ -2876,11 +3143,14 @@ class QuickButtonMacro(QMainWindow):
         
         add_textbox_action = QAction("텍스트 박스 추가", self)
         add_textbox_action.triggered.connect(self.add_textbox_dialog)
-        
+
+        add_image_action = QAction("이미지 버튼 추가", self)
+        add_image_action.triggered.connect(self.add_image_dialog)
+
         # 편집 모드 전환 메뉴
         toggle_mode_action = QAction("편집 모드 전환", self)
         toggle_mode_action.triggered.connect(lambda: self.edit_mode_checkbox.toggle())
-        
+
         # 선택 취소 메뉴 (편집 모드일 때만)
         clear_selection_action = QAction("선택 취소", self)
         clear_selection_action.triggered.connect(self.clear_all_selections)
@@ -2892,6 +3162,7 @@ class QuickButtonMacro(QMainWindow):
         
         menu.addAction(add_button_action)
         menu.addAction(add_textbox_action)
+        menu.addAction(add_image_action)
         menu.addSeparator()
         menu.addAction(toggle_mode_action)
         
@@ -3439,7 +3710,29 @@ class QuickButtonMacro(QMainWindow):
         
         if not isinstance(set_data['textboxes'], list):
             set_data['textboxes'] = []
-        
+
+        # 이미지 버튼 데이터 확인 (2026-10-12 이전 프리셋에는 키가 없다)
+        if not isinstance(set_data.get('images'), list):
+            set_data['images'] = []
+        set_data['images'] = [
+            img for img in set_data['images']
+            if isinstance(img, dict) and isinstance(img.get('file'), str) and img['file']
+        ]
+        for img in set_data['images']:
+            if not isinstance(img.get('text'), str):
+                img['text'] = ""
+            if not isinstance(img.get('erp_code'), str):
+                img['erp_code'] = ""
+            for key, default in (('x', 10), ('y', 10),
+                                 ('width', DEFAULT_IMAGE_WIDTH), ('height', DEFAULT_IMAGE_HEIGHT)):
+                if not isinstance(img.get(key), (int, float)):
+                    img[key] = default
+            if not isinstance(img.get('rotation'), (int, float)):
+                img['rotation'] = 0
+            img['rotation'] = int(img['rotation']) % 360
+            if not isinstance(img.get('flip'), bool):
+                img['flip'] = False
+
         # 각 버튼 데이터 확인 및 수정
         for i, button in enumerate(set_data['buttons']):
             # 기본 위치 계산 (그리드 형태)

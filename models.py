@@ -13,16 +13,18 @@ from constants import DEFAULT_FONT_FAMILY, DEFAULT_FONT_SIZE, PRESETS_DIR, META_
 
 class ButtonSet:
     """버튼 세트를 관리하는 클래스"""
-    def __init__(self, name, buttons=None, textboxes=None):
+    def __init__(self, name, buttons=None, textboxes=None, images=None):
         self.name = name
         self.buttons = buttons or []
         self.textboxes = textboxes or []
+        self.images = images or []     # 이미지 버튼(2026-10-12): file·text·erp_code·x·y·width·height
 
     def to_dict(self):
         result = {
             "name": self.name,
             "buttons": self.buttons.copy(),
-            "textboxes": self.textboxes.copy()
+            "textboxes": self.textboxes.copy(),
+            "images": self.images.copy()
         }
         if hasattr(self, 'individual_style') and self.individual_style:
             result['individual_style'] = True
@@ -94,7 +96,22 @@ class ButtonSet:
                     textbox["custom_color"] = False
                 textboxes.append(textbox)
 
-        set_obj = cls(data.get("name", "이름 없는 세트"), buttons, textboxes)
+        # 이미지 버튼(예전 프리셋에는 키 자체가 없다 → 빈 목록)
+        images = []
+        for image in data.get("images") or []:
+            if not isinstance(image, dict) or not image.get("file"):
+                continue
+            image.setdefault("text", "")
+            image.setdefault("erp_code", "")
+            image.setdefault("x", 10)
+            image.setdefault("y", 10)
+            image.setdefault("width", 150)
+            image.setdefault("height", 150)
+            image.setdefault("rotation", 0)
+            image.setdefault("flip", False)
+            images.append(image)
+
+        set_obj = cls(data.get("name", "이름 없는 세트"), buttons, textboxes, images)
 
         if 'individual_style' in data and data['individual_style']:
             set_obj.individual_style = True
@@ -119,7 +136,7 @@ class WidgetClipboard:
 
     def copy_widgets(self, widgets):
         # 순환 import 방지를 위해 함수 내부에서 import
-        from widgets import SelectableButton, SelectableTextBox
+        from widgets import SelectableButton, SelectableTextBox, SelectableImageButton
 
         if not widgets:
             return False
@@ -130,7 +147,19 @@ class WidgetClipboard:
         for widget in widgets:
             relative_pos = widget.pos() - self.reference_point
 
-            if isinstance(widget, SelectableButton):
+            # 이미지 버튼은 텍스트 박스의 하위 클래스라 먼저 검사한다
+            if isinstance(widget, SelectableImageButton):
+                image_idx = widget.parent.images.index(widget)
+                if 0 <= image_idx < len(widget.parent.image_data):
+                    image_data = copy.deepcopy(widget.parent.image_data[image_idx])
+                    # 크기는 데이터가 아니라 위젯이 갖고 있다(저장 때 geometry에서 읽는 것과 같은 규칙)
+                    image_data["width"] = widget.width()
+                    image_data["height"] = widget.height()
+                    image_data["relative_x"] = relative_pos.x()
+                    image_data["relative_y"] = relative_pos.y()
+                    widget_data.append({"type": "image", "data": image_data})
+
+            elif isinstance(widget, SelectableButton):
                 button_idx = widget.parent.buttons.index(widget)
                 if 0 <= button_idx < len(widget.parent.button_data):
                     button_data = copy.deepcopy(widget.parent.button_data[button_idx])
@@ -195,6 +224,16 @@ class WidgetClipboard:
                 textbox.custom_color = data.get("custom_color", False)
                 textbox.set_selected(True)
                 created_widgets.append(textbox)
+
+            elif widget_type == "image":
+                image = parent.create_image_button(
+                    data["file"], data.get("text", ""), x, y,
+                    data.get("width", 150), data.get("height", 150),
+                    erp_code=data.get("erp_code", ""),
+                    rotation=data.get("rotation", 0), flip=data.get("flip", False)
+                )
+                image.set_selected(True)
+                created_widgets.append(image)
 
         parent.buttons_container.updateMinimumSize()
         return len(created_widgets) > 0

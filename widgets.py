@@ -1,8 +1,25 @@
-from PyQt5.QtWidgets import QPushButton, QLabel, QWidget, QListWidget, QListWidgetItem
-from PyQt5.QtCore import Qt, QPoint, QRect
-from PyQt5.QtGui import QColor, QPainter, QPen, QFont
+import os
 
-from constants import GRID_SIZE, BORDER_MARGIN, MIN_WIDGET_WIDTH, MIN_WIDGET_HEIGHT
+from PyQt5.QtWidgets import QPushButton, QLabel, QWidget, QListWidget, QListWidgetItem
+from PyQt5.QtCore import Qt, QPoint, QRect, QSize
+from PyQt5.QtGui import QColor, QPainter, QPen, QFont, QPixmap, QTransform
+
+from constants import GRID_SIZE, BORDER_MARGIN, MIN_WIDGET_WIDTH, MIN_WIDGET_HEIGHT, IMAGES_DIR
+
+
+def _new_info_label(parent, over_picture=False):
+    """JYOR '구경 · 가격' 한 줄 레이블(클릭은 아래 위젯으로 통과). 사진 위에 얹을 땐 반투명 흰 바탕."""
+    label = QLabel("", parent)
+    label.setAttribute(Qt.WA_TransparentForMouseEvents)
+    label.setAlignment(Qt.AlignCenter)
+    bg = "rgba(255, 255, 255, 190)" if over_picture else "transparent"
+    label.setStyleSheet(f"color: #0d47a1; background: {bg};")
+    f = QFont()
+    f.setPointSize(15)
+    f.setBold(True)
+    label.setFont(f)
+    label.hide()
+    return label
 
 
 class SubLabelButton(QPushButton):
@@ -61,15 +78,7 @@ class SelectableButton(SubLabelButton):
 
         # JYOR 연동(2026-10-05): 품목번호(erp_code)가 있으면 버튼 아래쪽에 '구경 · 가격' 한 줄(클릭은 버튼으로 통과)
         self.erp_code = str(self.data.get("erp_code", "") or "").strip()
-        self.info_label = QLabel("", self)
-        self.info_label.setAttribute(Qt.WA_TransparentForMouseEvents)
-        self.info_label.setAlignment(Qt.AlignCenter)
-        self.info_label.setStyleSheet("color: #0d47a1; background: transparent;")
-        f = QFont()
-        f.setPointSize(15)
-        f.setBold(True)
-        self.info_label.setFont(f)
-        self.info_label.hide()
+        self.info_label = _new_info_label(self)
         self._place_info()
 
     def set_info(self, text):
@@ -321,6 +330,115 @@ class SelectableTextBox(QLabel):
             self.parent.delete_selected_items()
 
 
+class SelectableImageButton(SelectableTextBox):
+    """이미지 버튼(2026-10-12): 부속 사진을 버튼처럼 놓고, 실행 모드에서 터치하면 매크로를 돌린다.
+
+    편집 모드의 이동·크기 조절·선택은 텍스트 박스와 같다. 글자는 넣지 않는다 — 이름표가 필요하면
+    기존 버튼이나 텍스트 박스를 옆에 놓아 조합한다(사용자 요청). 사진은 위젯 크기에 맞춰 비율을 지키며 축소.
+    """
+    def __init__(self, image_file, parent=None, x=0, y=0, width=150, height=150, data=None):
+        super().__init__("", parent, x, y, width, height, data)
+        self.image_file = image_file
+        self.erp_code = str(self.data.get("erp_code", "") or "").strip()
+        # 회전(0/90/180/270)·좌우 반전 — 파일은 그대로 두고 그릴 때만 돌린다(사진 한 장을 여러 방향으로 재사용)
+        self.rotation = int(self.data.get("rotation", 0) or 0) % 360
+        self.flip = bool(self.data.get("flip", False))
+        self._pixmap = QPixmap()
+        self.setTextInteractionFlags(Qt.NoTextInteraction)
+        self.setAlignment(Qt.AlignCenter)
+        self.info_label = _new_info_label(self, over_picture=True)
+        self.load_image(image_file)
+        self._place_info()
+
+    @staticmethod
+    def resolve_path(image_file):
+        """프리셋에는 파일명만 있다 → 실행 폴더의 images/ 기준. 절대경로면 그대로."""
+        if os.path.isabs(image_file):
+            return image_file
+        return os.path.join(IMAGES_DIR, image_file)
+
+    def load_image(self, image_file):
+        self.image_file = image_file
+        path = self.resolve_path(image_file)
+        self._pixmap = QPixmap(path) if os.path.exists(path) else QPixmap()
+        if self._pixmap.isNull():
+            self.setText(f"(사진 없음)\n{image_file}")
+        self._fit_pixmap()
+
+    def _fit_pixmap(self):
+        if self._pixmap.isNull():
+            return
+        pm = self._pixmap
+        if self.flip or self.rotation:
+            t = QTransform()
+            if self.flip:
+                t.scale(-1, 1)
+            if self.rotation:
+                t.rotate(self.rotation)
+            pm = pm.transformed(t, Qt.SmoothTransformation)
+        inner = self.size() - QSize(6, 6)
+        self.setPixmap(pm.scaled(inner, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+
+    def set_orientation(self, rotation=None, flip=None):
+        """회전(도, 90 단위로 정규화)·반전을 바꾸고 다시 그린다."""
+        if rotation is not None:
+            self.rotation = int(rotation) % 360
+        if flip is not None:
+            self.flip = bool(flip)
+        self.data["rotation"] = self.rotation
+        self.data["flip"] = self.flip
+        self._fit_pixmap()
+
+    def set_info(self, text):
+        """JYOR 정보 줄(빈 문자열이면 숨김). 사진 아래쪽에 겹쳐 표시."""
+        self.info_label.setText(text or "")
+        self.info_label.setVisible(bool(text))
+        self._place_info()
+
+    def _place_info(self):
+        if not hasattr(self, "info_label"):
+            return
+        h = self.info_label.sizeHint().height()
+        self.info_label.setGeometry(2, max(0, self.height() - h - 3), max(0, self.width() - 4), h)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._fit_pixmap()
+        self._place_info()
+
+    # 글자 선택이 꺼진 QLabel은 마우스 이벤트를 받아들이지 않아(ignore) 부모 컨테이너로 새고,
+    # 컨테이너가 영역 선택을 시작하며 방금 고른 사진을 해제해 버린다(2026-10-12 드래그 안 되던 원인).
+    # 사진 버튼은 누름·이동·뗌을 모두 자기 것으로 받아들인다.
+    def mousePressEvent(self, event):
+        super().mousePressEvent(event)
+        event.accept()
+
+    def mouseMoveEvent(self, event):
+        super().mouseMoveEvent(event)
+        event.accept()
+
+    def mouseReleaseEvent(self, event):
+        was_resizing = self.resizing
+        super().mouseReleaseEvent(event)
+        event.accept()
+        # 실행 모드에서 사진 안에서 손을 떼면 기존 버튼과 똑같이 매크로 실행
+        if (self.parent and not self.parent.edit_mode and not was_resizing
+                and event.button() == Qt.LeftButton and self.rect().contains(event.pos())):
+            idx = self.parent.images.index(self) if self in self.parent.images else -1
+            if 0 <= idx < len(self.parent.image_data):
+                self.parent.execute_macro(self.parent.image_data[idx]["text"])
+
+    def update_selection_style(self):
+        # 실행 모드: 테두리 없이 사진만. 편집 모드: 옅은 점선(자리 확인용). 선택: 파란 실선.
+        if self.is_selected:
+            border = "2px solid #3399FF"
+        elif self.parent and getattr(self.parent, "edit_mode", False):
+            border = "1px dashed #A0A0A0"
+        else:
+            border = "none"
+        self.setStyleSheet(f"background-color: transparent; padding: 2px; border: {border};")
+
+
 class SetListWidget(QListWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -403,6 +521,9 @@ class ButtonContainerWidget(QWidget):
         for textbox in getattr(self.parent, 'textboxes', []):
             min_width = max(min_width, textbox.x() + textbox.width() + 20)
             min_height = max(min_height, textbox.y() + textbox.height() + 20)
+        for image in getattr(self.parent, 'images', []):
+            min_width = max(min_width, image.x() + image.width() + 20)
+            min_height = max(min_height, image.y() + image.height() + 20)
         self.setMinimumSize(min_width, min_height)
 
     def paintEvent(self, event):

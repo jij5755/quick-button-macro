@@ -2,7 +2,7 @@ from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QFormLayout,
     QPushButton, QLabel, QLineEdit, QTextEdit, QSpinBox,
     QScrollArea, QWidget, QFrame, QComboBox, QGroupBox,
-    QFontDialog, QColorDialog
+    QFontDialog, QColorDialog, QFileDialog
 )
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont, QColor, QPalette
@@ -453,6 +453,56 @@ class ButtonSettingsDialog(QDialog):
 
     def get_erp_code(self):
         return self.erp_input.text().strip()
+
+
+class ImageButtonSettingsDialog(QDialog):
+    """이미지 버튼 설정 대화상자(2026-10-12): 사진 파일 + 붙여넣기 텍스트 + JYOR 품목번호."""
+    IMAGE_FILTER = "이미지 파일 (*.png *.jpg *.jpeg *.bmp *.gif *.webp);;모든 파일 (*)"
+
+    def __init__(self, image_file="", text="", erp_code="", parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("이미지 버튼 설정")
+        self.resize(380, 240)
+        self.selected_path = None          # 새로 고른 파일 전체 경로(안 골랐으면 None = 그대로)
+        layout = QFormLayout()
+        file_layout = QHBoxLayout()
+        self.file_label = QLabel(image_file or "(아직 선택 안 함)")
+        self.file_label.setStyleSheet("color: #333;")
+        pick_button = QPushButton("사진 선택...")
+        pick_button.clicked.connect(self.pick_file)
+        file_layout.addWidget(self.file_label, 1)
+        file_layout.addWidget(pick_button)
+        self.text_input = QTextEdit(text)
+        self.text_input.setAcceptRichText(False)
+        self.text_input.setMinimumHeight(70)
+        self.erp_input = QLineEdit(erp_code or "")
+        self.erp_input.setPlaceholderText("예) 35729 — 비우면 표시 안 함")
+        layout.addRow("사진 파일:", file_layout)
+        layout.addRow("붙여넣기 텍스트:", self.text_input)
+        layout.addRow("JYOR 품목번호:", self.erp_input)
+        note_label = QLabel("※ 사진에는 글자가 들어가지 않습니다. 이름표는 버튼/텍스트 박스를 옆에 놓아 조합하세요.")
+        note_label.setWordWrap(True)
+        note_label.setStyleSheet("color: #666; font-style: italic;")
+        layout.addRow(note_label)
+        buttons_layout = QHBoxLayout()
+        save_button = QPushButton("저장")
+        cancel_button = QPushButton("취소")
+        save_button.clicked.connect(self.accept)
+        cancel_button.clicked.connect(self.reject)
+        buttons_layout.addWidget(save_button)
+        buttons_layout.addWidget(cancel_button)
+        layout.addRow(buttons_layout)
+        self.setLayout(layout)
+
+    def pick_file(self):
+        path, _ = QFileDialog.getOpenFileName(self, "사진 선택", "", self.IMAGE_FILTER)
+        if path:
+            self.selected_path = path
+            self.file_label.setText(path)
+
+    def get_values(self):
+        """(새로 고른 파일 경로 또는 None, 붙여넣기 텍스트, 품목번호)"""
+        return self.selected_path, self.text_input.toPlainText(), self.erp_input.text().strip()
 
 
 class SetNameDialog(QDialog):
