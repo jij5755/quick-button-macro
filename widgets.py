@@ -249,7 +249,18 @@ class SelectableTextBox(QLabel):
                         )
                         widget.move(self.snap_to_grid(new_pos))
                 self.parent.update_widget_data()
+        else:
+            # 실행 모드: 편집 모드에서 바뀐 크기 조절 커서(↔)가 남지 않게 매번 되돌린다
+            self.reset_cursor()
         super().mouseMoveEvent(event)
+
+    def run_mode_cursor(self):
+        """실행 모드에서 쓸 커서 모양(하위 클래스가 바꿀 수 있음)"""
+        return Qt.ArrowCursor
+
+    def reset_cursor(self):
+        """편집 모드를 끄거나 실행 모드에서 움직일 때 커서를 원래대로"""
+        self.setCursor(self.run_mode_cursor())
 
     def get_resize_edge(self, pos):
         x, y = pos.x(), pos.y()
@@ -427,6 +438,9 @@ class SelectableImageButton(SelectableTextBox):
             idx = self.parent.images.index(self) if self in self.parent.images else -1
             if 0 <= idx < len(self.parent.image_data):
                 self.parent.execute_macro(self.parent.image_data[idx]["text"])
+
+    def run_mode_cursor(self):
+        return Qt.PointingHandCursor      # 눌러서 실행하는 것이라 손가락 커서
 
     def update_selection_style(self):
         # 실행 모드: 테두리 없이 사진만. 편집 모드: 옅은 점선(자리 확인용). 선택: 파란 실선.

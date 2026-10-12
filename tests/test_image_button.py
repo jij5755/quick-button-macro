@@ -237,6 +237,32 @@ def test_rotation_and_flip_survive_set_switch_and_copy(window):
     assert (window.images[1].rotation, window.images[1].flip) == (270, True)
 
 
+def test_resize_cursor_does_not_linger_after_leaving_edit_mode(window):
+    """편집 모드에서 가장자리에 올려 ↔ 커서가 됐어도, 편집 모드를 끄면 보통 커서로 돌아와야 한다(2026-10-12 보고)."""
+    from PyQt5.QtCore import Qt, QPoint, QEvent
+    window.show()
+    window.edit_mode_checkbox.setChecked(True)
+    ib = window.create_image_button("xl_tee.png", "48921", 100, 100, 120, 90)
+    _mouse(ib, QEvent.MouseMove, QPoint(118, 45), Qt.NoButton)      # 오른쪽 가장자리
+    assert ib.cursor().shape() == Qt.SizeHorCursor
+    window.edit_mode_checkbox.setChecked(False)
+    assert ib.cursor().shape() != Qt.SizeHorCursor
+    _mouse(ib, QEvent.MouseMove, QPoint(118, 45), Qt.NoButton)      # 실행 모드에서 다시 가장자리에 올려도
+    assert ib.cursor().shape() == Qt.PointingHandCursor
+
+
+def test_textbox_resize_cursor_also_resets_when_edit_mode_off(window):
+    from PyQt5.QtCore import Qt, QPoint, QEvent
+    from PyQt5.QtGui import QFont, QColor
+    window.show()
+    window.edit_mode_checkbox.setChecked(True)
+    tb = window.create_textbox("이름표", 100, 100, 120, 40, QFont("맑은 고딕", 9), QColor("#000"), QColor("#fff"))
+    _mouse(tb, QEvent.MouseMove, QPoint(60, 38), Qt.NoButton)       # 아래 가장자리
+    assert tb.cursor().shape() == Qt.SizeVerCursor
+    window.edit_mode_checkbox.setChecked(False)
+    assert tb.cursor().shape() == Qt.ArrowCursor
+
+
 def test_import_image_copies_file_into_images_folder(window, tmp_path):
     src = tmp_path / "밖에있는사진.png"
     _make_png(str(src))

@@ -981,7 +981,11 @@ class QuickButtonMacro(QMainWindow):
         
         # 모든 위젯의 선택 상태 해제
         self.clear_all_selections()
-        
+
+        # 편집 모드에서 가장자리에 올려 바뀐 크기 조절 커서(↔)가 실행 모드까지 남지 않게 되돌린다
+        for widget in list(self.textboxes) + list(self.images):
+            widget.reset_cursor()
+
         # 편집 모드 표시 업데이트 - 현재 세트 인덱스 유효성 확인 추가
         try:
             self.update_edit_mode_display()
