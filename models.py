@@ -185,16 +185,17 @@ class WidgetClipboard:
         parent.clear_all_selections()
         created_widgets = []
 
+        # 기준점(첫 위젯 자리)만 그리드에 스냅하고 나머지는 상대 간격을 그대로 더한다.
+        # 위젯마다 따로 스냅하면 그리드 밖 위젯이 섞인 묶음은 붙여넣은 뒤 간격이 어긋난다(끌기 버그와 같은 원인).
+        base_x = round(paste_pos.x() / GRID_SIZE) * GRID_SIZE
+        base_y = round(paste_pos.y() / GRID_SIZE) * GRID_SIZE
+
         for item in self.clipboard_data:
             widget_type = item["type"]
             data = copy.deepcopy(item["data"])
 
-            rel_x = data.pop("relative_x", 0)
-            rel_y = data.pop("relative_y", 0)
-            absolute_pos = paste_pos + QPoint(rel_x, rel_y)
-
-            x = round(absolute_pos.x() / GRID_SIZE) * GRID_SIZE
-            y = round(absolute_pos.y() / GRID_SIZE) * GRID_SIZE
+            x = base_x + data.pop("relative_x", 0)
+            y = base_y + data.pop("relative_y", 0)
 
             if widget_type == "button":
                 button = parent.create_button(

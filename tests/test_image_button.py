@@ -94,8 +94,13 @@ def test_image_button_drag_moves_it_in_edit_mode(window):
 
 
 def test_image_button_shows_jyor_info_line(window):
+    from PyQt5.QtTest import QTest
     ib = window.create_image_button("xl_tee.png", "48921", 10, 10, 120, 90, erp_code="35584")
     window.refresh_jyor_info()
+    for _ in range(100):                      # 조회는 백그라운드 스레드 → 결과를 잠깐 기다린다
+        if ib.info_label.text():
+            break
+        QTest.qWait(20)
     assert ib.info_label.text() == "15A  ₩4,400"
 
 

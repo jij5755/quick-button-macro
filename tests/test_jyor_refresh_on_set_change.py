@@ -35,6 +35,12 @@ def window(tmp_path, monkeypatch):
 
 
 def test_switching_set_fills_info_immediately(window):
+    from PyQt5.QtTest import QTest
     window.change_button_set(1)
     assert [b.erp_code for b in window.buttons] == ["35584"]
+    # 조회는 백그라운드 스레드(2026-10-12)라 결과가 돌아올 때까지 아주 잠깐 기다린다(30초 타이머와는 무관)
+    for _ in range(100):
+        if window.buttons[0].info_label.text():
+            break
+        QTest.qWait(20)
     assert window.buttons[0].info_label.text() == "15A  ₩4,400"

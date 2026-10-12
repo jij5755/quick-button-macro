@@ -165,7 +165,9 @@ class SelectableButton(SubLabelButton):
             _edit_release(self, event)
         self.press_pos = None
         self.drag_started = False
-        if self.parent and not self.parent.edit_mode and event.button() == Qt.LeftButton:
+        # 버튼 안에서 손을 뗄 때만 실행(터치가 미끄러져 밖에서 떨어지면 실행하지 않는다 — 사진 버튼과 같은 규칙)
+        if (self.parent and not self.parent.edit_mode and event.button() == Qt.LeftButton
+                and self.rect().contains(event.pos())):
             button_idx = self.parent.buttons.index(self) if self in self.parent.buttons else -1
             if 0 <= button_idx < len(self.parent.button_data):
                 text = self.parent.button_data[button_idx]["text"]
@@ -413,27 +415,38 @@ class SelectableImageButton(SelectableTextBox):
             return image_file
         return os.path.join(IMAGES_DIR, image_file)
 
+    MAX_SOURCE_PX = 1024      # 버튼은 많아야 수백 px — 스마트폰 원본(4000px급)은 로드 때 줄여 메모리·변환 비용을 막는다
+
     def load_image(self, image_file):
         self.image_file = image_file
         path = self.resolve_path(image_file)
         self._pixmap = QPixmap(path) if os.path.exists(path) else QPixmap()
         if self._pixmap.isNull():
             self.setText(f"(사진 없음)\n{image_file}")
+        elif max(self._pixmap.width(), self._pixmap.height()) > self.MAX_SOURCE_PX:
+            self._pixmap = self._pixmap.scaled(self.MAX_SOURCE_PX, self.MAX_SOURCE_PX,
+                                               Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        self._update_oriented()
         self._fit_pixmap()
 
-    def _fit_pixmap(self):
-        if self._pixmap.isNull():
-            return
+    def _update_oriented(self):
+        """회전·반전을 적용한 사진을 한 번만 만들어 둔다(크기 조절 때마다 다시 돌리지 않게)."""
         pm = self._pixmap
-        if self.flip or self.rotation:
+        if not pm.isNull() and (self.flip or self.rotation):
             t = QTransform()
             if self.flip:
                 t.scale(-1, 1)
             if self.rotation:
                 t.rotate(self.rotation)
             pm = pm.transformed(t, Qt.SmoothTransformation)
+        self._oriented = pm
+
+    def _fit_pixmap(self):
+        oriented = getattr(self, "_oriented", None)
+        if oriented is None or oriented.isNull():
+            return
         inner = self.size() - QSize(6, 6)
-        self._fitted = pm.scaled(inner, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        self._fitted = oriented.scaled(inner, Qt.KeepAspectRatio, Qt.SmoothTransformation)
         self._apply_press_scale()
 
     def _apply_press_scale(self):
@@ -470,6 +483,7 @@ class SelectableImageButton(SelectableTextBox):
             self.flip = bool(flip)
         self.data["rotation"] = self.rotation
         self.data["flip"] = self.flip
+        self._update_oriented()
         self._fit_pixmap()
 
     def set_info(self, text):

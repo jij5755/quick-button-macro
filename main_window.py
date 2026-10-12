@@ -11,7 +11,7 @@ from PyQt5.QtWidgets import (
     QSizePolicy, QFrame, QFontDialog, QColorDialog, QComboBox,
     QSplitter, QListWidget, QListWidgetItem, QTextEdit, QCheckBox, QGroupBox
 )
-from PyQt5.QtCore import Qt, QPoint, QSize, QTimer, QMimeData, QEvent, QRect
+from PyQt5.QtCore import Qt, QPoint, QSize, QTimer, QMimeData, QEvent, QRect, QThread, pyqtSignal
 from PyQt5.QtGui import QFont, QColor, QPalette, QDrag, QCursor, QPainter, QPixmap, QPen, QKeyEvent
 import pyautogui
 import pyperclip
@@ -120,11 +120,32 @@ from dialogs import (
     TextBoxSizeDialog, SetNameDialog, QuickEditDialog, ImageButtonSettingsDialog
 )
 
+class _JyorLookupThread(QThread):
+    """JYOR DB 조회를 메인 스레드 밖에서(DB가 잠겨 있으면 최대 2초 기다리는데, 그동안 UI가 멈추지 않게)."""
+    done = pyqtSignal(dict)
+
+    def __init__(self, codes, parent=None):
+        super().__init__(parent)
+        self.codes = list(codes)
+
+    def run(self):
+        try:
+            info = jyor_link.lookup(self.codes)
+        except Exception as e:
+            print(f"JYOR 정보 갱신 실패: {e}")
+            info = {}
+        self.done.emit(info)
+
+
 class QuickButtonMacro(QMainWindow):
     """퀵버튼 매크로 메인 클래스"""
     def __init__(self):
         super().__init__()
-        
+
+        # JYOR 조회 스레드(한 번에 하나만, 실행 중 들어온 요청은 끝난 뒤 한 번만 다시)
+        self._jyor_thread = None
+        self._jyor_pending = False
+
         self.target_position = (500, 500)  # 기본 마우스 위치
         self.button_width = 150
         self.button_height = 40
@@ -178,7 +199,11 @@ class QuickButtonMacro(QMainWindow):
         if not self.button_sets:
             self.button_sets.append(ButtonSet("기본 세트"))
             self.update_set_list()
-        
+
+        # 시작 로드가 끝났다 — 이제부터 프리셋 전환은 변경사항 저장 여부를 묻는다
+        # (전에는 시작 시 콤보 인덱스가 안 바뀌면 이 플래그가 안 서서 첫 전환이 조용히 넘어갔다)
+        self._initial_preset_loaded = True
+
         # 초기 세트 선택
         if self.set_list.count() > 0:
             self.set_list.setCurrentRow(0)
@@ -198,14 +223,29 @@ class QuickButtonMacro(QMainWindow):
         self.refresh_jyor_info()
 
     def refresh_jyor_info(self):
-        """지금 화면 버튼들의 품목번호를 JYOR DB에서 한 번에 읽어 정보 줄 갱신(읽기 전용, 실패 = 빈칸)."""
-        try:
-            widgets = list(self.buttons) + list(self.images)
-            info = jyor_link.lookup([getattr(w, "erp_code", "") for w in widgets])
-            for w in widgets:
-                w.set_info(jyor_link.info_text(info.get(getattr(w, "erp_code", ""))))
-        except Exception as e:
-            print(f"JYOR 정보 갱신 실패: {e}")
+        """지금 화면 버튼들의 품목번호를 JYOR DB에서 읽어 정보 줄 갱신(읽기 전용, 실패 = 빈칸).
+
+        조회는 백그라운드 스레드에서 돌고 결과만 메인 스레드로 돌아온다. 이미 조회 중이면
+        '끝나면 한 번 더'만 표시해 두고 돌아간다(그 사이 버튼이 늘어도 다음 조회가 포함한다).
+        """
+        if self._jyor_thread is not None and self._jyor_thread.isRunning():
+            self._jyor_pending = True
+            return
+        self._jyor_pending = False
+        codes = [getattr(w, "erp_code", "") for w in list(self.buttons) + list(self.images)]
+        thread = _JyorLookupThread(codes, self)
+        thread.done.connect(self._apply_jyor_info)
+        thread.finished.connect(self._on_jyor_thread_finished)
+        self._jyor_thread = thread
+        thread.start()
+
+    def _apply_jyor_info(self, info):
+        for w in list(self.buttons) + list(self.images):
+            w.set_info(jyor_link.info_text(info.get(getattr(w, "erp_code", ""))))
+
+    def _on_jyor_thread_finished(self):
+        if self._jyor_pending:
+            self.refresh_jyor_info()
 
     def _set_button_erp(self, button, code):
         """버튼/이미지 버튼의 JYOR 품목번호를 위젯·데이터 양쪽에 반영"""
@@ -415,11 +455,9 @@ class QuickButtonMacro(QMainWindow):
                 return
             
             if reply == QMessageBox.Yes:
-                # 임시로 current_preset을 이전 프리셋으로 복원하여 저장
-                temp_current = self.preset_manager.current_preset
-                self.preset_manager.current_preset = old_preset_name
-                self.save_current_preset()
-                self.preset_manager.current_preset = temp_current
+                # 콤보는 이미 새 프리셋으로 바뀌어 있으므로 옛 이름을 명시해서 저장한다
+                # (전에는 콤보의 현재 이름으로 저장돼 옛 내용이 새 프리셋 파일을 덮어썼다)
+                self.save_current_preset(old_preset_name)
         
         # 새 프리셋 로드
         self.load_preset(new_preset_name)
@@ -508,9 +546,10 @@ class QuickButtonMacro(QMainWindow):
             self.statusBar().showMessage(f"새 프리셋 '{preset_name}'이(가) 생성되었습니다.", 2000)
 
 
-    def save_current_preset(self):
-        """현재 프리셋 저장"""
-        if not self.preset_combo.currentText():
+    def save_current_preset(self, preset_name=None):
+        """현재 화면·세트 데이터를 프리셋 파일로 저장. preset_name이 없으면 콤보에 선택된 이름."""
+        preset_name = preset_name or self.preset_combo.currentText()
+        if not preset_name:
             self.duplicate_preset()  # 선택된 프리셋이 없으면 새 이름으로 저장
             return
         
@@ -532,7 +571,6 @@ class QuickButtonMacro(QMainWindow):
         }
         
         # 프리셋 저장
-        preset_name = self.preset_combo.currentText()
         self.preset_manager.save_preset(preset_name, preset_data)
         
         # 상태 메시지 표시
@@ -763,6 +801,12 @@ class QuickButtonMacro(QMainWindow):
 
     def closeEvent(self, event):
         """어플리케이션 종료 전 설정 저장"""
+        # JYOR 조회 스레드가 돌고 있으면 창이 사라지기 전에 끝날 때까지 기다린다
+        if getattr(self, "_jyor_timer", None) is not None:
+            self._jyor_timer.stop()
+        if self._jyor_thread is not None and self._jyor_thread.isRunning():
+            self._jyor_pending = False
+            self._jyor_thread.wait(3000)
         try:
             # 현재 세트 데이터 저장
             if self.current_set_index < len(self.button_sets) and (self.buttons or self.textboxes or self.images):
@@ -1617,8 +1661,10 @@ class QuickButtonMacro(QMainWindow):
             return
 
         # 세트 로드가 실패한 상태면 화면에 위젯 일부만 남아 있으므로
-        # 그대로 저장하면 세트의 원본 데이터가 부분 상태로 덮어써진다
+        # 그대로 저장하면 세트의 원본 데이터가 부분 상태로 덮어써진다 — 조용히 버리지 말고 알린다
         if self._current_set_load_failed:
+            self.statusBar().showMessage(
+                "이 세트는 로드에 실패해 편집이 저장되지 않습니다. presets/backup 폴더의 백업으로 복구하세요.", 8000)
             return
             
         # 현재 버튼 상태를 button_data에 저장
@@ -1638,6 +1684,7 @@ class QuickButtonMacro(QMainWindow):
                     "y": pos.y(),
                     "width": size.width(),
                     "height": size.height(),
+                    "custom_style": getattr(button, "custom_style", False),  # 통합 스타일 플래그(리뷰: 저장 누락이었음)
                     "custom_size": button.custom_size,  # 개별 설정 상태 저장
                     "custom_font": button.custom_font,
                     "custom_color": button.custom_color
@@ -1794,6 +1841,8 @@ class QuickButtonMacro(QMainWindow):
                     button.custom_size = custom_size
                     button.custom_font = custom_font
                     button.custom_color = custom_color
+                    button.custom_style = button_info.get("custom_style", False)
+                    self.button_data[-1]["custom_style"] = button.custom_style
                     button.update_selection_style()
             
             # 세트의 텍스트 박스 생성
@@ -1844,11 +1893,14 @@ class QuickButtonMacro(QMainWindow):
             self.save_sets()
         except Exception as e:
             print(f"버튼 세트 변경 중 오류: {e}")
-            # 오류 발생 시 기본 타이틀 설정
-            if self.edit_mode:
-                self.setWindowTitle(f'퀵버튼 매크로 - {current_set.name} [편집 모드]')
-            else:
-                self.setWindowTitle(f'퀵버튼 매크로 - {current_set.name}')
+            # 실패를 제목과 경고창으로 알린다. 이 상태에서 한 편집은 save_current_set이 버리므로
+            # 사용자가 모르고 작업하다 잃지 않게 한다
+            self.setWindowTitle(f'퀵버튼 매크로 - {current_set.name} [로드 실패 - 편집 잠김]')
+            QMessageBox.warning(
+                self, "세트 로드 실패",
+                f"'{current_set.name}' 세트를 불러오는 중 오류가 났습니다.\n{e}\n\n"
+                f"이 세트에서 한 편집은 저장되지 않습니다. 다른 세트로 옮기거나\n"
+                f"'{os.path.join(self.preset_manager.presets_dir, 'backup')}' 폴더의 백업으로 복구해 주세요.")
     
     def add_set(self):
         """새 버튼 세트 추가"""
@@ -2084,6 +2136,8 @@ class QuickButtonMacro(QMainWindow):
                         button.custom_size = button_info.get("custom_size", False)
                         button.custom_font = button_info.get("custom_font", False)
                         button.custom_color = button_info.get("custom_color", False)
+                        button.custom_style = button_info.get("custom_style", False)
+                        self.button_data[-1]["custom_style"] = button.custom_style
                         button.update_selection_style()
             
             # 변경 사항 저장
@@ -2931,7 +2985,8 @@ class QuickButtonMacro(QMainWindow):
             x, y,
             button.width(),
             button.height(),
-            button.sub_label
+            button.sub_label,
+            erp_code=getattr(button, "erp_code", "")     # 리뷰: 복사본에서 품목번호가 빠졌었다
         )
         
         # 개별 설정 상태 복사
@@ -2944,6 +2999,8 @@ class QuickButtonMacro(QMainWindow):
         self.button_data[new_button_idx]["custom_size"] = button.custom_size
         self.button_data[new_button_idx]["custom_font"] = button.custom_font
         self.button_data[new_button_idx]["custom_color"] = button.custom_color
+        new_button.custom_style = getattr(button, "custom_style", False)
+        self.button_data[new_button_idx]["custom_style"] = new_button.custom_style
         
         # 개별 설정 시각화 업데이트
         new_button.update_selection_style()
