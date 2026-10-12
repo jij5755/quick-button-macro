@@ -263,6 +263,32 @@ def test_textbox_resize_cursor_also_resets_when_edit_mode_off(window):
     assert tb.cursor().shape() == Qt.ArrowCursor
 
 
+def test_press_shrinks_picture_and_release_springs_back(window):
+    """실행 모드에서 누르면 사진이 작아지고(눌리는 느낌), 떼면 짧은 애니메이션 뒤 원래 크기로."""
+    from PyQt5.QtCore import Qt, QEvent
+    from PyQt5.QtTest import QTest
+    window.show()
+    ib = window.create_image_button("xl_tee.png", "48921", 100, 100, 120, 90)
+    full = ib.pixmap().size()
+    c = ib.rect().center()
+    _mouse(ib, QEvent.MouseButtonPress, c, Qt.LeftButton)
+    pressed = ib.pixmap().size()
+    assert pressed.width() < full.width() and pressed.height() < full.height()
+    _mouse(ib, QEvent.MouseButtonRelease, c, Qt.NoButton)
+    QTest.qWait(400)                      # 애니메이션(0.15초)보다 넉넉히
+    assert ib.pixmap().size() == full
+
+
+def test_press_in_edit_mode_does_not_shrink(window):
+    from PyQt5.QtCore import Qt, QEvent
+    window.show()
+    window.edit_mode_checkbox.setChecked(True)
+    ib = window.create_image_button("xl_tee.png", "48921", 100, 100, 120, 90)
+    full = ib.pixmap().size()
+    _mouse(ib, QEvent.MouseButtonPress, ib.rect().center(), Qt.LeftButton)
+    assert ib.pixmap().size() == full
+
+
 def test_import_image_copies_file_into_images_folder(window, tmp_path):
     src = tmp_path / "밖에있는사진.png"
     _make_png(str(src))

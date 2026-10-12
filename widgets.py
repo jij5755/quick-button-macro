@@ -1,7 +1,7 @@
 import os
 
 from PyQt5.QtWidgets import QPushButton, QLabel, QWidget, QListWidget, QListWidgetItem
-from PyQt5.QtCore import Qt, QPoint, QRect, QSize
+from PyQt5.QtCore import Qt, QPoint, QRect, QSize, QVariantAnimation, QEasingCurve
 from PyQt5.QtGui import QColor, QPainter, QPen, QFont, QPixmap, QTransform
 
 from constants import GRID_SIZE, BORDER_MARGIN, MIN_WIDGET_WIDTH, MIN_WIDGET_HEIGHT, IMAGES_DIR
@@ -355,11 +355,21 @@ class SelectableImageButton(SelectableTextBox):
         self.rotation = int(self.data.get("rotation", 0) or 0) % 360
         self.flip = bool(self.data.get("flip", False))
         self._pixmap = QPixmap()
+        self._fitted = QPixmap()          # 위젯 크기에 맞춰 돌리고 줄인 사진(누름 효과의 기준)
         self.setTextInteractionFlags(Qt.NoTextInteraction)
         self.setAlignment(Qt.AlignCenter)
         self.info_label = _new_info_label(self, over_picture=True)
+        # 눌리는 느낌: 실행 모드에서 누르면 사진이 PRESS_SCALE로 작아지고, 떼면 짧게 튕기며 원래 크기로
+        self._press_scale = 1.0
+        self._press_anim = QVariantAnimation(self)
+        self._press_anim.setDuration(self.PRESS_ANIM_MS)
+        self._press_anim.setEasingCurve(QEasingCurve.OutBack)
+        self._press_anim.valueChanged.connect(self._on_press_anim)
         self.load_image(image_file)
         self._place_info()
+
+    PRESS_SCALE = 0.88
+    PRESS_ANIM_MS = 150
 
     @staticmethod
     def resolve_path(image_file):
@@ -388,7 +398,34 @@ class SelectableImageButton(SelectableTextBox):
                 t.rotate(self.rotation)
             pm = pm.transformed(t, Qt.SmoothTransformation)
         inner = self.size() - QSize(6, 6)
-        self.setPixmap(pm.scaled(inner, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        self._fitted = pm.scaled(inner, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        self._apply_press_scale()
+
+    def _apply_press_scale(self):
+        if self._fitted.isNull():
+            return
+        if self._press_scale >= 1.0:
+            self.setPixmap(self._fitted)
+            return
+        shrunk = self._fitted.size() * self._press_scale
+        self.setPixmap(self._fitted.scaled(shrunk, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+
+    def _on_press_anim(self, value):
+        self._press_scale = min(float(value), 1.0)   # OutBack은 1을 살짝 넘는데 사진은 원래 크기까지만
+        self._apply_press_scale()
+
+    def _press_down(self):
+        self._press_anim.stop()
+        self._press_scale = self.PRESS_SCALE
+        self._apply_press_scale()
+
+    def _spring_back(self):
+        if self._press_scale >= 1.0:
+            return
+        self._press_anim.stop()
+        self._press_anim.setStartValue(self._press_scale)
+        self._press_anim.setEndValue(1.0)
+        self._press_anim.start()
 
     def set_orientation(self, rotation=None, flip=None):
         """회전(도, 90 단위로 정규화)·반전을 바꾸고 다시 그린다."""
@@ -423,6 +460,8 @@ class SelectableImageButton(SelectableTextBox):
     def mousePressEvent(self, event):
         super().mousePressEvent(event)
         event.accept()
+        if self.parent and not self.parent.edit_mode and event.button() == Qt.LeftButton:
+            self._press_down()
 
     def mouseMoveEvent(self, event):
         super().mouseMoveEvent(event)
@@ -432,6 +471,8 @@ class SelectableImageButton(SelectableTextBox):
         was_resizing = self.resizing
         super().mouseReleaseEvent(event)
         event.accept()
+        if event.button() == Qt.LeftButton:
+            self._spring_back()
         # 실행 모드에서 사진 안에서 손을 떼면 기존 버튼과 똑같이 매크로 실행
         if (self.parent and not self.parent.edit_mode and not was_resizing
                 and event.button() == Qt.LeftButton and self.rect().contains(event.pos())):
