@@ -2,40 +2,40 @@
 chcp 949 >nul
 cd /d "%~dp0"
 echo ============================================
-echo  ï¿½ï¿½ï¿½ï¿½Æ° ï¿½ï¿½Å©ï¿½ï¿½ - ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
+echo  Äü¹öÆ° ¸ÅÅ©·Î - ¾ÈÀü ºôµå
 echo ============================================
 echo.
 tasklist /FI "IMAGENAME eq QuickButtonMacro.exe" | find /I "QuickButtonMacro.exe" >nul
 if not errorlevel 1 (
-    echo [ï¿½ß´ï¿½] ï¿½ï¿½ï¿½ï¿½Æ° ï¿½ï¿½Å©ï¿½Î°ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½Ô´Ï´ï¿½. ï¿½ï¿½Å©ï¿½ï¿½ Ã¢(ï¿½×¸ï¿½ï¿½ï¿½ "ï¿½Ì¹ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½" Ã¢)ï¿½ï¿½ ï¿½ï¿½ï¿½ ï¿½Ý°ï¿½ ï¿½Ù½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ï¼ï¿½ï¿½ï¿½.
+    echo [Áß´Ü] Äü¹öÆ° ¸ÅÅ©·Î°¡ ½ÇÇà ÁßÀÔ´Ï´Ù. ¸ÅÅ©·Î Ã¢(±×¸®°í "ÀÌ¹Ì ½ÇÇà Áß" Ã¢)À» ¸ðµÎ ´Ý°í ´Ù½Ã ½ÇÇàÇÏ¼¼¿ä.
     pause
     exit /b 1
 )
 set STAMP=%date:~0,4%%date:~5,2%%date:~8,2%-%time:~0,2%%time:~3,2%
 set STAMP=%STAMP: =0%
-set BK=ï¿½ï¿½ï¿½ï¿½ï¿½Â¹ï¿½ï¿½\%STAMP%-ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
-echo [1/3] ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ -^> %BK%
+set BK=ÇÁ¸®¼Â¹é¾÷\%STAMP%-ºôµåÀü
+echo [1/3] ÇÁ¸®¼Â ¹é¾÷ -^> %BK%
 mkdir "%BK%" 2>nul
 xcopy /E /I /Y "dist\QuickButtonMacro\presets" "%BK%\presets" >nul
 if errorlevel 1 (
-    echo [ï¿½ß´ï¿½] ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½. ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Ê½ï¿½ï¿½Ï´ï¿½.
+    echo [Áß´Ü] ÇÁ¸®¼Â ¹é¾÷ ½ÇÆÐ. ºôµåÇÏÁö ¾Ê½À´Ï´Ù.
     pause
     exit /b 1
 )
 copy /Y "dist\QuickButtonMacro\preset_meta.json" "%BK%\" >nul
 if exist "dist\QuickButtonMacro\jyor_link.json" copy /Y "dist\QuickButtonMacro\jyor_link.json" "%BK%\" >nul
 if exist "dist\QuickButtonMacro\images" xcopy /E /I /Y "dist\QuickButtonMacro\images" "%BK%\images" >nul
-echo [2/3] PyInstaller ï¿½ï¿½ï¿½ï¿½ (build\dist_new - ï¿½ï¿½ï¿½àº» ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Çµå¸®ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½)
+echo [2/3] PyInstaller ºôµå (build\dist_new - ½ÇÇàº» Æú´õ´Â °Çµå¸®Áö ¾ÊÀ½)
 python -m PyInstaller QuickButtonMacro.spec --noconfirm --distpath build\dist_new
 if errorlevel 1 (
-    echo [ï¿½ß´ï¿½] ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½. ï¿½ï¿½ï¿½àº»ï¿½ï¿½ ï¿½×´ï¿½ï¿½ï¿½Ô´Ï´ï¿½.
+    echo [Áß´Ü] ºôµå ½ÇÆÐ. ½ÇÇàº»Àº ±×´ë·ÎÀÔ´Ï´Ù.
     pause
     exit /b 1
 )
-echo [3/3] ï¿½ï¿½ï¿½àº»ï¿½ï¿½ exe + _internal ï¿½ï¿½ ï¿½ï¿½ï¿½î¾²ï¿½ï¿½ (ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½)
+echo [3/3] ½ÇÇàº»¿¡ exe + _internal ¸¸ µ¤¾î¾²±â (ÇÁ¸®¼Â º¸Á¸)
 rmdir /S /Q "dist\QuickButtonMacro\_internal"
 xcopy /E /I /Y "build\dist_new\QuickButtonMacro\_internal" "dist\QuickButtonMacro\_internal" >nul
 copy /Y "build\dist_new\QuickButtonMacro\QuickButtonMacro.exe" "dist\QuickButtonMacro\QuickButtonMacro.exe" >nul
 echo.
-echo [ï¿½Ï·ï¿½] dist\QuickButtonMacro\QuickButtonMacro.exe ï¿½ï¿½ï¿½ï¿½. ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½: %BK%
+echo [¿Ï·á] dist\QuickButtonMacro\QuickButtonMacro.exe °»½Å. ÇÁ¸®¼Â ¹é¾÷: %BK%
 pause

@@ -1147,6 +1147,11 @@ class QuickButtonMacro(QMainWindow):
     def get_all_selected_widgets(self):
         """선택된 모든 위젯(버튼, 텍스트 박스) 반환"""
         selected_widgets = []
+
+        # 이미지 버튼을 먼저 — 클립보드 붙여넣기가 이 순서대로 다시 만들므로 사진이 바닥, 이름표가 위에 온다
+        for image in self.images:
+            if image.is_selected:
+                selected_widgets.append(image)
         
         # 선택된 버튼 추가
         for button in self.buttons:
@@ -1157,11 +1162,6 @@ class QuickButtonMacro(QMainWindow):
         for textbox in self.textboxes:
             if textbox.is_selected:
                 selected_widgets.append(textbox)
-
-        # 선택된 이미지 버튼 추가
-        for image in self.images:
-            if image.is_selected:
-                selected_widgets.append(image)
 
         return selected_widgets
 
@@ -1758,6 +1758,17 @@ class QuickButtonMacro(QMainWindow):
         self._current_set_load_failed = True  # 로드가 끝까지 성공해야 False로 전환
 
         try:
+            # 세트의 이미지 버튼을 먼저 만든다 — 나중에 만든 위젯이 위에 그려지므로(z-order),
+            # 사진 위에 글자 버튼/텍스트 박스를 이름표로 겹쳐 둔 조합이 세트를 갔다 와도 유지된다
+            for image_info in getattr(current_set, 'images', []):
+                self.create_image_button(
+                    image_info["file"], image_info.get("text", ""),
+                    image_info.get("x", 10), image_info.get("y", 10),
+                    image_info.get("width", DEFAULT_IMAGE_WIDTH), image_info.get("height", DEFAULT_IMAGE_HEIGHT),
+                    erp_code=image_info.get("erp_code", ""),
+                    rotation=image_info.get("rotation", 0), flip=image_info.get("flip", False)
+                )
+
             # 세트의 버튼 생성
             for button_info in current_set.buttons:
                 # 위치 및 크기 정보 추출
@@ -1765,7 +1776,7 @@ class QuickButtonMacro(QMainWindow):
                 y = button_info.get("y", 10)
                 width = button_info.get("width", self.button_width)
                 height = button_info.get("height", self.button_height)
-                
+
                 # 두 번째 줄 레이블 정보 추출 (하위 호환성)
                 label2 = button_info.get("label2", "")
                 
@@ -1816,16 +1827,6 @@ class QuickButtonMacro(QMainWindow):
                         textbox.custom_font = custom_font
                         textbox.custom_color = custom_color
                         textbox.update_selection_style()
-
-            # 세트의 이미지 버튼 생성
-            for image_info in getattr(current_set, 'images', []):
-                self.create_image_button(
-                    image_info["file"], image_info.get("text", ""),
-                    image_info.get("x", 10), image_info.get("y", 10),
-                    image_info.get("width", DEFAULT_IMAGE_WIDTH), image_info.get("height", DEFAULT_IMAGE_HEIGHT),
-                    erp_code=image_info.get("erp_code", ""),
-                    rotation=image_info.get("rotation", 0), flip=image_info.get("flip", False)
-                )
 
             # 모든 위젯 생성 성공 - 이제 화면 상태가 세트 데이터와 일치함
             self._current_set_load_failed = False

@@ -289,6 +289,40 @@ def test_press_in_edit_mode_does_not_shrink(window):
     assert ib.pixmap().size() == full
 
 
+def _topmost_at(window, x, y):
+    from PyQt5.QtCore import QPoint
+    return window.buttons_container.childAt(QPoint(x, y))
+
+
+def test_label_button_stays_on_top_of_picture_after_set_switch(window):
+    """사진 위에 글자 버튼(이름표)을 겹쳐 둔 조합은 세트를 갔다 와도 버튼이 위에 있어야 한다(리뷰 지적)."""
+    from models import ButtonSet
+    window.show()
+    window.button_sets.append(ButtonSet("B"))
+    window.update_set_list()
+    window.create_image_button("xl_tee.png", "1", 0, 0, 150, 150)
+    label = window.create_button("XL삼티", "1", 0, 110, 150, 40)
+    assert _topmost_at(window, 75, 130) is label
+    window.save_current_set()
+    window.change_button_set(1)
+    window.change_button_set(0)
+    assert _topmost_at(window, 75, 130) is window.buttons[0]
+    assert _topmost_at(window, 75, 50) is window.images[0]
+
+
+def test_paste_keeps_label_button_on_top_of_picture(window):
+    from PyQt5.QtCore import QPoint
+    window.show()
+    window.edit_mode_checkbox.setChecked(True)
+    ib = window.create_image_button("xl_tee.png", "1", 0, 0, 150, 150)
+    label = window.create_button("XL삼티", "1", 0, 110, 150, 40)
+    ib.set_selected(True)
+    label.set_selected(True)
+    window.copy_selected_widgets_to_clipboard()
+    window.paste_widgets_from_clipboard(QPoint(300, 0))
+    assert _topmost_at(window, 375, 130) is window.buttons[1]
+
+
 def test_import_image_copies_file_into_images_folder(window, tmp_path):
     src = tmp_path / "밖에있는사진.png"
     _make_png(str(src))
