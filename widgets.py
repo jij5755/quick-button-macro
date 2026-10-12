@@ -22,6 +22,58 @@ def _new_info_label(parent, over_picture=False):
     return label
 
 
+def _snap(value, grid):
+    return round(value / grid) * grid
+
+
+# ---- 편집 모드 끌기(버튼·텍스트 박스·사진 버튼 공용, 2026-10-12) ----
+# 원래 있던 버그 둘을 여기서 고친다.
+#  1) 선택된 묶음 위를 Ctrl 없이 누르면 "전체 해제 → 이것만 선택"을 먼저 해버려 묶음이 풀렸다.
+#     → 이미 선택된 위젯을 누르면 선택을 유지하고, 끌지 않고 그냥 뗐을 때만 이것만 남긴다.
+#  2) 위젯마다 "현재 위치 + 이번 이동량"을 각자 스냅해 그리드 밖 위젯은 반올림이 어긋나고 잔여값이 누적됐다.
+#     → 누른 시점의 시작 위치를 기억하고, 누른 위젯만 스냅한 뒤 같은 이동량을 전부에 적용한다.
+def _edit_press(w, event):
+    ctrl = bool(event.modifiers() & Qt.ControlModifier)
+    w.press_pos = event.pos()
+    w._press_global = event.globalPos()
+    w._click_pending = False
+    if ctrl:
+        w.toggle_selected()
+    elif not w.is_selected:
+        w.parent.clear_all_selections()
+        w.set_selected(True)
+    else:
+        w._click_pending = True        # 묶음 위를 눌렀다: 끌면 묶음 이동, 그냥 떼면 이것만 선택
+    w.drag_started = w.is_selected
+    w._drag_starts = {x: x.pos() for x in w.parent.get_all_selected_widgets()} if w.is_selected else {}
+    w._drag_applied = QPoint(0, 0)
+
+
+def _edit_move(w, event):
+    if not (w.drag_started and (event.buttons() & Qt.LeftButton)) or not getattr(w, "_drag_starts", None):
+        return
+    delta = event.globalPos() - w._press_global
+    start = w._drag_starts.get(w, w.pos())
+    target = QPoint(_snap(start.x() + delta.x(), w.grid_size), _snap(start.y() + delta.y(), w.grid_size))
+    applied = target - start
+    if applied == w._drag_applied:
+        return                          # 같은 칸 안에서 움직임 → 다시 그리지도, 저장하지도 않는다
+    w._drag_applied = applied
+    for widget, origin in w._drag_starts.items():
+        widget.move(origin + applied)
+    w.parent.update_widget_data()
+
+
+def _edit_release(w, event):
+    if getattr(w, "_click_pending", False) and getattr(w, "_drag_applied", QPoint(0, 0)) == QPoint(0, 0):
+        w.parent.clear_all_selections()
+        w.set_selected(True)
+    w._click_pending = False
+    w._drag_starts = {}
+    w.drag_started = False
+    w.press_pos = None
+
+
 class SubLabelButton(QPushButton):
     """두 줄 레이블을 표시할 수 있는 버튼 클래스"""
     def __init__(self, main_label="", sub_label="", parent=None):
@@ -103,15 +155,14 @@ class SelectableButton(SubLabelButton):
         if event.button() == Qt.LeftButton:
             self.press_pos = event.pos()
             if self.parent and self.parent.edit_mode:
-                if not (event.modifiers() & Qt.ControlModifier):
-                    self.parent.clear_all_selections()
-                self.toggle_selected()
-                self.drag_started = True
+                _edit_press(self, event)
             else:
                 if self.parent:
                     super().mousePressEvent(event)
 
     def mouseReleaseEvent(self, event):
+        if self.parent and self.parent.edit_mode and event.button() == Qt.LeftButton:
+            _edit_release(self, event)
         self.press_pos = None
         self.drag_started = False
         if self.parent and not self.parent.edit_mode and event.button() == Qt.LeftButton:
@@ -122,15 +173,8 @@ class SelectableButton(SubLabelButton):
         super().mouseReleaseEvent(event)
 
     def mouseMoveEvent(self, event):
-        if self.parent and self.parent.edit_mode and self.drag_started and (event.buttons() & Qt.LeftButton):
-            pos_delta = event.globalPos() - self.mapToGlobal(self.press_pos)
-            if self.is_selected:
-                for widget in self.parent.get_all_selected_widgets():
-                    new_pos = self.parent.buttons_container.mapFromGlobal(
-                        widget.mapToGlobal(QPoint(0, 0)) + pos_delta
-                    )
-                    widget.move(self.snap_to_grid(new_pos))
-            self.parent.update_widget_data()
+        if self.parent and self.parent.edit_mode:
+            _edit_move(self, event)
 
     def snap_to_grid(self, pos):
         x = round(pos.x() / self.grid_size) * self.grid_size
@@ -206,10 +250,7 @@ class SelectableTextBox(QLabel):
                     self.resize_start_pos = event.globalPos()
                     self.resize_start_geometry = self.geometry()
                     return
-                if not (event.modifiers() & Qt.ControlModifier):
-                    self.parent.clear_all_selections()
-                self.toggle_selected()
-                self.drag_started = True
+                _edit_press(self, event)
         super().mousePressEvent(event)
 
     def mouseReleaseEvent(self, event):
@@ -218,6 +259,8 @@ class SelectableTextBox(QLabel):
             self.resize_mode = None
             if self.parent:
                 self.parent.update_widget_data()
+        elif self.parent and self.parent.edit_mode and event.button() == Qt.LeftButton:
+            _edit_release(self, event)
         self.press_pos = None
         self.drag_started = False
         super().mouseReleaseEvent(event)
@@ -240,15 +283,7 @@ class SelectableTextBox(QLabel):
             else:
                 self.setCursor(Qt.ArrowCursor)
 
-            if self.drag_started and (event.buttons() & Qt.LeftButton):
-                pos_delta = event.globalPos() - self.mapToGlobal(self.press_pos)
-                if self.is_selected:
-                    for widget in self.parent.get_all_selected_widgets():
-                        new_pos = self.parent.buttons_container.mapFromGlobal(
-                            widget.mapToGlobal(QPoint(0, 0)) + pos_delta
-                        )
-                        widget.move(self.snap_to_grid(new_pos))
-                self.parent.update_widget_data()
+            _edit_move(self, event)
         else:
             # 실행 모드: 편집 모드에서 바뀐 크기 조절 커서(↔)가 남지 않게 매번 되돌린다
             self.reset_cursor()
