@@ -180,6 +180,24 @@ def test_jyor_refresh_while_running_is_coalesced_not_lost(window, monkeypatch):
     assert len(calls) == 2, "실행 중 들어온 요청은 하나로 합쳐 끝난 뒤 한 번만 다시 조회"
 
 
+def test_no_jyor_lookup_starts_after_close(window):
+    """2026-10-16: 조회 중 들어온 '끝나면 한 번 더'가 창을 닫은 뒤 늦게 도착한 끝남 신호로 새 스레드를
+    띄우면, 창이 사라질 때 'QThread: Destroyed while thread is still running'으로 프로세스가 죽는다."""
+    from PyQt5.QtWidgets import QApplication
+    if window._jyor_thread is not None:
+        window._jyor_thread.wait(3000)
+    QApplication.processEvents()
+    before = window._jyor_thread
+    window._jyor_pending = True            # 조회 중에 요청이 들어왔고, 끝남 신호는 아직 큐에 있는 상태
+    window.close()
+    window._on_jyor_thread_finished()      # 닫은 뒤 늦게 도착한 끝남 신호
+    window.refresh_jyor_info()             # 닫은 뒤 다른 경로로 온 갱신 요청
+    started = window._jyor_thread is not before
+    if started:
+        window._jyor_thread.wait(3000)     # 실패해도 프로세스는 안 죽게
+    assert not started, "창을 닫은 뒤에는 JYOR 조회를 새로 시작하지 않는다"
+
+
 # ---- 7. 글자 버튼도 안에서 뗄 때만 실행 ----
 def test_button_released_outside_does_not_run_macro(window):
     from PyQt5.QtCore import Qt, QPoint, QEvent
@@ -207,3 +225,11 @@ def test_large_image_is_downscaled_on_load_and_orientation_cached(window):
     assert ib._oriented is oriented, "크기만 바뀌면 회전본을 다시 만들지 않는다"
     window.rotate_image_button(ib, 90)
     assert ib._oriented is not oriented
+
+
+def test_tests_never_send_real_input(window, real_input_calls):
+    """안전장치(conftest) 확인: 실행 모드 매크로가 진짜 마우스·키보드 대신 기록만 남긴다."""
+    window.execute_macro("48921")
+    names = [n for n, _ in real_input_calls]
+    assert "pyautogui.moveTo" in names and "pyautogui.doubleClick" in names
+    assert names.count("SendInput") >= 2 * len("48921")

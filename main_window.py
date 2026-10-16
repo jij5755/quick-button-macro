@@ -145,6 +145,7 @@ class QuickButtonMacro(QMainWindow):
         # JYOR 조회 스레드(한 번에 하나만, 실행 중 들어온 요청은 끝난 뒤 한 번만 다시)
         self._jyor_thread = None
         self._jyor_pending = False
+        self._jyor_closed = False   # 창을 닫은 뒤엔 새 조회 금지(남은 스레드가 창과 함께 파괴되면 프로세스가 죽음)
 
         self.target_position = (500, 500)  # 기본 마우스 위치
         self.button_width = 150
@@ -228,6 +229,8 @@ class QuickButtonMacro(QMainWindow):
         조회는 백그라운드 스레드에서 돌고 결과만 메인 스레드로 돌아온다. 이미 조회 중이면
         '끝나면 한 번 더'만 표시해 두고 돌아간다(그 사이 버튼이 늘어도 다음 조회가 포함한다).
         """
+        if self._jyor_closed:
+            return
         if self._jyor_thread is not None and self._jyor_thread.isRunning():
             self._jyor_pending = True
             return
@@ -809,8 +812,11 @@ class QuickButtonMacro(QMainWindow):
         # JYOR 조회 스레드가 돌고 있으면 창이 사라지기 전에 끝날 때까지 기다린다
         if getattr(self, "_jyor_timer", None) is not None:
             self._jyor_timer.stop()
+        # 조회가 이미 끝났어도 '끝나면 한 번 더'는 끝남 신호로 큐에 남아 있을 수 있다 — 닫힘 표시로
+        # 그 신호든 다른 갱신 요청이든 새 스레드를 못 띄우게 막고(2026-10-16), 도는 것만 기다린다.
+        self._jyor_closed = True
+        self._jyor_pending = False
         if self._jyor_thread is not None and self._jyor_thread.isRunning():
-            self._jyor_pending = False
             self._jyor_thread.wait(3000)
         try:
             # 현재 세트 데이터 저장
