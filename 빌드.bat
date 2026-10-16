@@ -7,7 +7,7 @@ echo ============================================
 echo.
 tasklist /FI "IMAGENAME eq QuickButtonMacro.exe" | find /I "QuickButtonMacro.exe" >nul
 if not errorlevel 1 (
-    echo [중단] 퀵버튼 매크로가 실행 중입니다. 매크로 창(그리고 "이미 실행 중" 창)을 모두 닫고 다시 실행하세요.
+    echo [중단] 퀵버튼 매크로가 실행 중입니다. 매크로 창과 "이미 실행 중" 창을 모두 닫고 다시 실행하세요.
     pause
     exit /b 1
 )
