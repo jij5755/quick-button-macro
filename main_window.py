@@ -743,6 +743,11 @@ class QuickButtonMacro(QMainWindow):
         # 상태 메시지 표시
         self.statusBar().showMessage("프리셋 목록을 새로고침했습니다.", 2000)
 
+    def open_preset_folder(self):
+        """프리셋 저장 폴더를 탐색기로 열기"""
+        self.preset_manager.ensure_preset_dir()
+        os.startfile(os.path.abspath(self.preset_manager.presets_dir))
+
 
     def migrate_legacy_data(self):
         """기존 button_sets.json을 프리셋으로 변환"""
@@ -876,7 +881,13 @@ class QuickButtonMacro(QMainWindow):
         self.refresh_preset_btn.setToolTip("프리셋 목록 새로고침")
         self.refresh_preset_btn.setMaximumWidth(30)
         self.refresh_preset_btn.clicked.connect(self.refresh_preset_list)
-        
+
+        # 프리셋 저장 폴더 열기 버튼
+        self.open_preset_dir_btn = QPushButton("📂")
+        self.open_preset_dir_btn.setToolTip("프리셋 저장 폴더 열기")
+        self.open_preset_dir_btn.setMaximumWidth(30)
+        self.open_preset_dir_btn.clicked.connect(self.open_preset_folder)
+
         set_position_button = QPushButton('마우스 위치 설정')
         set_position_button.clicked.connect(self.set_target_position)
         add_button = QPushButton('버튼 추가')
@@ -903,6 +914,7 @@ class QuickButtonMacro(QMainWindow):
         header_layout.addWidget(self.new_preset_btn)
         header_layout.addWidget(self.rename_preset_btn)
         header_layout.addWidget(self.refresh_preset_btn)
+        header_layout.addWidget(self.open_preset_dir_btn)
        
         header_layout.addWidget(set_position_button)
         header_layout.addWidget(add_button)
